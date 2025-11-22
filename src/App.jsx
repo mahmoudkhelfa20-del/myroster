@@ -120,7 +120,7 @@ const App = () => {
     fetchPaymentSettings();
   }, []);
 
-  // 2. Auth Listener
+  // 2. Auth Listener (تم التصحيح)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -128,10 +128,14 @@ const App = () => {
         setUserEmail(user.email);
         if (user.isAnonymous) setIsPremium(false); 
       } else {
+        // حالة الخروج: نضع بيانات افتراضية لكي يفتح التطبيق
         setUserId(null);
         setUserEmail(null);
+        setConfig(defaultInitialConfig);
+        setStaffList(defaultInitialStaff);
+        setShowAuthModal(true); // إظهار نافذة الدخول تلقائياً
       }
-      setLoading(false);
+      setLoading(false); // وقف التحميل
     });
     return () => unsubscribe();
   }, []);
