@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, Edit3, ShieldCheck
 } from 'lucide-react';
 
 // 1. Firebase Imports
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 
 // 2. Firebase Configuration
 const firebaseConfig = {
@@ -23,22 +23,27 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// --- بيانات الدفع الخاصة بك ---
-const PAYMENT_INFO = {
-  price: "150 جنيه",
-  instapay: "mahmoudkhelfa@instapay", // تم التحديث
-  wallet: "01205677601", // تم التحديث
-  whatsapp: "201205677601" // رقم الواتساب لاستقبال التحويلات
-};
+// --- إعدادات الأدمن ---
+// ⚠️ ضع الـ UID الخاص بك هنا لتظهر لك لوحة التحكم
+const ADMIN_UID = "YOUR_ADMIN_UID_HERE"; 
 
 // --- START OF APP COMPONENT ---
 const App = () => {
   const [activeTab, setActiveTab] = useState('staff');
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
-  const [isPremium, setIsPremium] = useState(false); // حالة الاشتراك
+  const [isPremium, setIsPremium] = useState(false);
   const [loading, setLoading] = useState(true);
   
+  // Admin State
+  const isAdmin = userId === ADMIN_UID;
+  const [paymentInfo, setPaymentInfo] = useState({
+    price: "150 جنيه",
+    instapay: "mahmoudkhelfa@instapay",
+    wallet: "01205677601",
+    whatsapp: "201205677601"
+  });
+
   // Modals State
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -87,7 +92,6 @@ const App = () => {
 
   const roles = ['Charge', 'Medication', 'Staff'];
 
-  // --- FIREBASE LOGIC ---
   const defaultInitialConfig = {
     shiftSystem: '12h', allowDayAfterNight: false, requireMedicationNurse: true, allowMultipleCharge: false,
     minStaffOnlyCount: 3, startDay: 1, month: new Date().getMonth(), year: new Date().getFullYear(), durationDays: 30
@@ -98,7 +102,25 @@ const App = () => {
     { id: 2, name: 'سارة علي', role: 'Staff', grade: 'A', preference: 'scattered', maxConsecutive: 4, targetShifts: 15, vacationDays: [] }, 
   ];
   
-  // Auth Listener
+  // --- LISTENERS ---
+  
+  // 1. Fetch Payment Settings (Global)
+  useEffect(() => {
+    const fetchPaymentSettings = async () => {
+        try {
+            const docRef = doc(db, "settings", "payment");
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                setPaymentInfo(docSnap.data());
+            } else {
+                // If not exists, use default state
+            }
+        } catch (e) { console.log("Error fetching settings:", e); }
+    };
+    fetchPaymentSettings();
+  }, []);
+
+  // 2. Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -114,7 +136,7 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // Data Listener (Check Premium)
+  // 3. User Data Listener
   useEffect(() => {
     if (!userId) return;
     const docRef = doc(db, "rosters", userId);
@@ -139,7 +161,7 @@ const App = () => {
     return () => unsubscribe();
   }, [userId]);
 
-  // Sync Function
+  // --- SYNC & ACTIONS ---
   const updateFirestore = async (newConfig = config, newStaffList = staffList, newRoster = roster) => {
     if (!userId || !config || !staffList) return; 
     try {
@@ -147,11 +169,22 @@ const App = () => {
     } catch (e) { console.error(e); }
   };
 
+  const updateAdminSettings = async () => {
+      if (!isAdmin) return;
+      if(window.confirm("هل تريد حفظ التعديلات العامة لجميع المستخدمين؟")) {
+        try {
+            await setDoc(doc(db, "settings", "payment"), paymentInfo);
+            alert("تم تحديث بيانات الدفع للجميع بنجاح!");
+        } catch(e) {
+            alert("حدث خطأ: " + e.message);
+        }
+      }
+  };
+
   const setConfigAndSync = (newConfig) => { setConfig(newConfig); updateFirestore(newConfig, staffList, roster); };
   const setStaffListAndSync = (newStaffList) => { setStaffList(newStaffList); updateFirestore(config, newStaffList, roster); };
   const setRosterAndSync = (newRoster) => { setRoster(newRoster); updateFirestore(config, staffList, newRoster); };
 
-  // --- ACTIONS ---
   const addStaff = () => {
     const newId = staffList.length > 0 ? Math.max(...staffList.map(s => s.id)) + 1 : 1;
     const defaultTarget = config.shiftSystem === '12h' ? 15 : config.shiftSystem === '24h' ? 10 : 22;
@@ -228,13 +261,8 @@ const App = () => {
     setRosterAndSync(newRoster); setLogs(generationLogs); setStaffStats(staffState); setActiveTab('roster');
   };
 
-  // --- PREMIUM ACTIONS ---
   const handlePremiumFeature = (action) => {
-    if (isPremium) {
-      action();
-    } else {
-      setShowPaymentModal(true);
-    }
+    if (isPremium) action(); else setShowPaymentModal(true);
   };
 
   const exportRosterToCSV = () => {
@@ -261,11 +289,8 @@ const App = () => {
     document.body.removeChild(link);
   };
 
-  const exportRosterToPDF = () => {
-     window.print();
-  };
+  const exportRosterToPDF = () => { window.print(); };
 
-  // --- AUTH & MODALS ---
   const handleAuthSubmit = async (e, mode) => {
     e.preventDefault();
     setAuthError(null);
@@ -276,10 +301,21 @@ const App = () => {
     } catch (error) { setAuthError("فشل العملية: " + error.message); }
   };
 
+  // --- RENDERERS ---
+
   const renderLoading = () => (
-    <div className="text-center py-20 animate-pulse">
-      <div className="border-t-4 border-indigo-500 border-solid rounded-full w-12 h-12 mx-auto mb-4 animate-spin"></div>
-      <p className="text-indigo-600 font-bold">جاري الاتصال بالسحابة...</p>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+      <div className="text-center py-10 animate-pulse">
+        <div className="border-t-4 border-indigo-500 border-solid rounded-full w-12 h-12 mx-auto mb-4 animate-spin"></div>
+        <p className="text-indigo-600 font-bold">جاري الاتصال بالسحابة...</p>
+      </div>
+      {/* Emergency Reset Button */}
+      <button 
+        onClick={() => { signOut(auth); window.location.reload(); }} 
+        className="mt-4 text-xs text-slate-400 underline hover:text-red-500"
+      >
+        هل استغرق الأمر وقتاً طويلاً؟ اضغط هنا لإعادة التعيين
+      </button>
     </div>
   );
 
@@ -312,23 +348,23 @@ const App = () => {
             <div className="p-6 space-y-6">
               <div className="text-center space-y-2">
                  <p className="text-gray-600 font-bold">سعر الاشتراك الشامل</p>
-                 <div className="text-3xl font-black text-indigo-600">{PAYMENT_INFO.price} <span className="text-sm text-gray-400">/ مدى الحياة</span></div>
+                 <div className="text-3xl font-black text-indigo-600">{paymentInfo.price} <span className="text-sm text-gray-400">/ مدى الحياة</span></div>
               </div>
               
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                  <div className="flex items-center justify-between p-2 border-b border-slate-200">
                     <span className="font-bold text-slate-700 flex items-center gap-2"><Activity className="w-4 h-4 text-indigo-500"/> InstaPay</span>
-                    <span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{PAYMENT_INFO.instapay}</span>
+                    <span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.instapay}</span>
                  </div>
                  <div className="flex items-center justify-between p-2">
                     <span className="font-bold text-slate-700 flex items-center gap-2"><Phone className="w-4 h-4 text-green-600"/> محفظة</span>
-                    <span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{PAYMENT_INFO.wallet}</span>
+                    <span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.wallet}</span>
                  </div>
               </div>
 
               <div className="text-center space-y-3">
                 <p className="text-xs text-slate-500">بعد التحويل، اضغط بالأسفل لإرسال صورة التحويل واتساب</p>
-                <a href={`https://wa.me/${PAYMENT_INFO.whatsapp}?text=أريد الاشتراك في تطبيق الروستر. قمت بتحويل المبلغ.`} target="_blank" className="w-full block bg-green-500 text-white p-3 rounded-xl font-bold hover:bg-green-600 shadow-lg shadow-green-200 transition-transform hover:-translate-y-1">
+                <a href={`https://wa.me/${paymentInfo.whatsapp}?text=أريد الاشتراك في تطبيق الروستر. قمت بتحويل المبلغ.`} target="_blank" className="w-full block bg-green-500 text-white p-3 rounded-xl font-bold hover:bg-green-600 shadow-lg shadow-green-200 transition-transform hover:-translate-y-1">
                    <div className="flex items-center justify-center gap-2"><MessageCircle /> تفعيل الاشتراك عبر واتساب</div>
                 </a>
               </div>
@@ -338,7 +374,7 @@ const App = () => {
   );
 
   if (loading || config === null || staffList === null) {
-      return <div className="min-h-screen bg-slate-50 font-sans text-slate-900" dir="rtl"><main className="max-w-7xl mx-auto px-4 py-8">{renderLoading()}</main></div>;
+      return renderLoading();
   }
   
   return (
@@ -358,6 +394,7 @@ const App = () => {
                 <div className="flex items-center gap-2">
                    <p className="text-xs text-slate-500 font-serif italic mt-0.5 tracking-wide">for Nurses</p>
                    {isPremium && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold border border-amber-200">Premium 👑</span>}
+                   {isAdmin && <span className="text-[10px] bg-slate-800 text-white px-1.5 py-0.5 rounded-full font-bold">Admin 🛠️</span>}
                 </div>
               </div>
             </div>
@@ -366,7 +403,6 @@ const App = () => {
                   {userEmail ? <LogOut className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
                   {userEmail ? 'خروج' : 'دخول'}
               </button>
-              
               <div className="hidden md:flex bg-slate-100 p-1 rounded-xl">
                  {[ {id:'staff', icon:Users, label:'الفريق'}, {id:'settings', icon:UserCog, label:'الإعدادات'}, {id:'roster', icon:Calendar, label:'الجدول'}, {id:'contact', icon:MessageCircle, label:'تواصل'} ].map(tab => (
                   <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -393,47 +429,82 @@ const App = () => {
         </div>
 
         {activeTab === 'settings' && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-4">
-                   <h4 className="text-sm font-bold text-slate-400 uppercase">نظام العمل</h4>
-                   <div className="bg-slate-50 p-6 rounded-lg border border-slate-100 space-y-4">
-                      <div className="grid grid-cols-2 gap-3">
-                         <div className="col-span-2">
-                            <label className="block text-sm font-medium text-slate-700 mb-2">بداية الروستر</label>
-                            <div className="flex gap-2">
-                               <input type="number" min="1" max="31" value={config.startDay} onChange={(e) => setConfigAndSync({...config, startDay: parseInt(e.target.value)})} className="w-20 p-2 border rounded font-bold text-center"/>
-                               <select value={config.month} onChange={(e) => setConfigAndSync({...config, month: parseInt(e.target.value)})} className="flex-1 p-2 border rounded font-bold">{months.map((m, idx) => <option key={idx} value={idx}>{m}</option>)}</select>
-                               <input type="number" value={config.year} onChange={(e) => setConfigAndSync({...config, year: parseInt(e.target.value)})} className="w-24 p-2 border rounded font-bold text-center"/>
+          <div className="animate-in fade-in slide-in-from-bottom-4 space-y-8">
+             {/* Admin Control Panel - Only Visible to Admin */}
+             {isAdmin && (
+                 <div className="bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 overflow-hidden">
+                     <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2">
+                        <ShieldCheck className="text-emerald-400"/>
+                        <h3 className="font-bold text-lg">لوحة تحكم الأدمن (تعديل بيانات الدفع)</h3>
+                     </div>
+                     <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">السعر</label>
+                            <input type="text" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">InstaPay Username</label>
+                            <input type="text" value={paymentInfo.instapay} onChange={(e) => setPaymentInfo({...paymentInfo, instapay: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">رقم المحفظة</label>
+                            <input type="text" value={paymentInfo.wallet} onChange={(e) => setPaymentInfo({...paymentInfo, wallet: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">رقم واتساب</label>
+                            <input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" />
+                        </div>
+                        <div className="md:col-span-2">
+                            <button onClick={updateAdminSettings} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-all">
+                                <Save className="w-5 h-5"/> حفظ التعديلات العامة
+                            </button>
+                        </div>
+                     </div>
+                 </div>
+             )}
+
+             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-4">
+                        <h4 className="text-sm font-bold text-slate-400 uppercase">نظام العمل</h4>
+                        <div className="bg-slate-50 p-6 rounded-lg border border-slate-100 space-y-4">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="col-span-2">
+                                    <label className="block text-sm font-medium text-slate-700 mb-2">بداية الروستر</label>
+                                    <div className="flex gap-2">
+                                    <input type="number" min="1" max="31" value={config.startDay} onChange={(e) => setConfigAndSync({...config, startDay: parseInt(e.target.value)})} className="w-20 p-2 border rounded font-bold text-center"/>
+                                    <select value={config.month} onChange={(e) => setConfigAndSync({...config, month: parseInt(e.target.value)})} className="flex-1 p-2 border rounded font-bold">{months.map((m, idx) => <option key={idx} value={idx}>{m}</option>)}</select>
+                                    <input type="number" value={config.year} onChange={(e) => setConfigAndSync({...config, year: parseInt(e.target.value)})} className="w-24 p-2 border rounded font-bold text-center"/>
+                                    </div>
+                                </div>
+                                <div className="col-span-2">
+                                    <label className="block text-sm font-medium text-slate-700 mb-2">المدة (يوم)</label>
+                                    <input type="number" value={config.durationDays} onChange={(e) => setConfigAndSync({...config, durationDays: parseInt(e.target.value)})} className="w-full p-2 border rounded font-bold"/>
+                                </div>
                             </div>
-                         </div>
-                         <div className="col-span-2">
-                            <label className="block text-sm font-medium text-slate-700 mb-2">المدة (يوم)</label>
-                            <input type="number" value={config.durationDays} onChange={(e) => setConfigAndSync({...config, durationDays: parseInt(e.target.value)})} className="w-full p-2 border rounded font-bold"/>
-                         </div>
-                      </div>
-                      <hr />
-                      <div>
-                         <label className="block text-sm font-medium text-slate-700 mb-2">النظام</label>
-                         <select value={config.shiftSystem} onChange={(e) => setConfigAndSync({...config, shiftSystem: e.target.value})} className="w-full p-3 border rounded-lg">
-                            <option value="12h">12 ساعة (Day / Night)</option>
-                            <option value="8h">8 ساعات (3 Shifts)</option>
-                            <option value="24h">24 ساعة</option>
-                         </select>
-                      </div>
-                      <div>
-                         <label className="block text-sm font-medium text-slate-700 mb-2">الحد الأدنى (Staff)</label>
-                         <input type="number" value={config.minStaffOnlyCount} onChange={(e) => setConfigAndSync({...config, minStaffOnlyCount: parseInt(e.target.value)})} className="w-24 p-3 border rounded-lg font-bold text-center"/>
-                      </div>
-                   </div>
-                </div>
-                <div className="space-y-4">
-                   <h4 className="text-sm font-bold text-slate-400 uppercase">السياسات</h4>
-                   <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 space-y-3">
-                      <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><span className="text-sm font-medium">Day بعد Night</span><input type="checkbox" checked={config.allowDayAfterNight} onChange={(e) => setConfigAndSync({...config, allowDayAfterNight: e.target.checked})} className="w-5 h-5"/></label>
-                      <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><span className="text-sm font-medium">Medication Nurse</span><input type="checkbox" checked={config.requireMedicationNurse} onChange={(e) => setConfigAndSync({...config, requireMedicationNurse: e.target.checked})} className="w-5 h-5"/></label>
-                      <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><span className="text-sm font-medium">أكثر من Charge</span><input type="checkbox" checked={config.allowMultipleCharge} onChange={(e) => setConfigAndSync({...config, allowMultipleCharge: e.target.checked})} className="w-5 h-5"/></label>
-                   </div>
+                            <hr />
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">النظام</label>
+                                <select value={config.shiftSystem} onChange={(e) => setConfigAndSync({...config, shiftSystem: e.target.value})} className="w-full p-3 border rounded-lg">
+                                    <option value="12h">12 ساعة (Day / Night)</option>
+                                    <option value="8h">8 ساعات (3 Shifts)</option>
+                                    <option value="24h">24 ساعة</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">الحد الأدنى (Staff)</label>
+                                <input type="number" value={config.minStaffOnlyCount} onChange={(e) => setConfigAndSync({...config, minStaffOnlyCount: parseInt(e.target.value)})} className="w-24 p-3 border rounded-lg font-bold text-center"/>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="space-y-4">
+                        <h4 className="text-sm font-bold text-slate-400 uppercase">السياسات</h4>
+                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 space-y-3">
+                            <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><span className="text-sm font-medium">Day بعد Night</span><input type="checkbox" checked={config.allowDayAfterNight} onChange={(e) => setConfigAndSync({...config, allowDayAfterNight: e.target.checked})} className="w-5 h-5"/></label>
+                            <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><span className="text-sm font-medium">Medication Nurse</span><input type="checkbox" checked={config.requireMedicationNurse} onChange={(e) => setConfigAndSync({...config, requireMedicationNurse: e.target.checked})} className="w-5 h-5"/></label>
+                            <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><span className="text-sm font-medium">أكثر من Charge</span><input type="checkbox" checked={config.allowMultipleCharge} onChange={(e) => setConfigAndSync({...config, allowMultipleCharge: e.target.checked})} className="w-5 h-5"/></label>
+                        </div>
+                    </div>
                 </div>
              </div>
           </div>
@@ -540,7 +611,7 @@ const App = () => {
                  <div className="grid grid-cols-3 gap-4 text-center">
                     <a href="https://facebook.com" target="_blank" className="p-4 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100"><Facebook className="mx-auto mb-1"/><span className="text-xs font-bold">Facebook</span></a>
                     <a href="https://instagram.com" target="_blank" className="p-4 bg-pink-50 text-pink-600 rounded-xl hover:bg-pink-100"><Instagram className="mx-auto mb-1"/><span className="text-xs font-bold">Instagram</span></a>
-                    <a href={`https://wa.me/${PAYMENT_INFO.whatsapp}`} target="_blank" className="p-4 bg-green-50 text-green-600 rounded-xl hover:bg-green-100"><Phone className="mx-auto mb-1"/><span className="text-xs font-bold">WhatsApp</span></a>
+                    <a href={`https://wa.me/${paymentInfo.whatsapp}`} target="_blank" className="p-4 bg-green-50 text-green-600 rounded-xl hover:bg-green-100"><Phone className="mx-auto mb-1"/><span className="text-xs font-bold">WhatsApp</span></a>
                  </div>
               </div>
            </div>
