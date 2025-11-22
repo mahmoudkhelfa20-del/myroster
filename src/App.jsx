@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck
 } from 'lucide-react';
 
 // 1. Firebase Imports
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 
 // 2. Firebase Configuration
 const firebaseConfig = {
@@ -37,6 +37,7 @@ const App = () => {
   
   // Admin State
   const isAdmin = userId === ADMIN_UID;
+  const [targetUserUid, setTargetUserUid] = useState(""); // لتفعيل اشتراكات الآخرين
   const [paymentInfo, setPaymentInfo] = useState({
     price: "1000 جنيه",
     instapay: "mahmoudkhelfa@instapay",
@@ -54,8 +55,8 @@ const App = () => {
   const defaultInitialConfig = {
     shiftSystem: '12h', allowDayAfterNight: false, requireMedicationNurse: true, allowMultipleCharge: false,
     minStaffOnlyCount: 3, startDay: 1, month: new Date().getMonth(), year: new Date().getFullYear(), durationDays: 30,
-    hospitalName: "", // اسم المستشفى
-    hospitalLogo: null // اللوجو (Base64)
+    hospitalName: "", 
+    hospitalLogo: null
   };
 
   const defaultInitialStaff = [
@@ -171,6 +172,7 @@ const App = () => {
     } catch (e) { console.error(e); }
   };
 
+  // دالة الأدمن: تحديث بيانات الدفع العامة
   const updateAdminSettings = async () => {
       if (!isAdmin) return;
       if(window.confirm("هل تريد حفظ التعديلات العامة؟")) {
@@ -179,19 +181,40 @@ const App = () => {
       }
   };
 
+  // دالة الأدمن: تفعيل اشتراك لمستخدم آخر
+  const activateUserSubscription = async () => {
+      if (!isAdmin) return;
+      if (!targetUserUid) { alert("أدخل كود المستخدم أولاً"); return; }
+      
+      const nextYear = new Date();
+      nextYear.setFullYear(nextYear.getFullYear() + 1);
+      const expiryString = nextYear.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      if(window.confirm(`هل أنت متأكد من تفعيل الاشتراك للمستخدم ${targetUserUid} حتى ${expiryString}؟`)) {
+          try {
+              // تحديث مستند المستخدم المستهدف
+              await updateDoc(doc(db, "rosters", targetUserUid), {
+                  subscriptionEndDate: expiryString,
+                  isPremium: true // للتوافق
+              });
+              alert(`تم التفعيل بنجاح! ينتهي في: ${expiryString}`);
+              setTargetUserUid(""); // مسح الخانة
+          } catch (e) {
+              alert("فشل التفعيل! تأكد أن الـ UID صحيح وأن المستخدم سجل دخول مرة واحدة على الأقل.\n\nالخطأ: " + e.message);
+          }
+      }
+  };
+
   const setConfigAndSync = (newConfig) => { setConfig(newConfig); updateFirestore(newConfig, staffList, roster); };
   const setStaffListAndSync = (newStaffList) => { setStaffList(newStaffList); updateFirestore(config, newStaffList, roster); };
   const setRosterAndSync = (newRoster) => { setRoster(newRoster); updateFirestore(config, staffList, newRoster); };
 
-  // Handle Logo Upload (Convert to Base64)
   const handleLogoUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-        if (file.size > 500000) { alert("حجم الصورة كبير جداً! يرجى اختيار صورة أصغر من 500KB"); return; }
+        if (file.size > 500000) { alert("حجم الصورة كبير! اختر أقل من 500KB"); return; }
         const reader = new FileReader();
-        reader.onloadend = () => {
-            setConfigAndSync({...config, hospitalLogo: reader.result});
-        };
+        reader.onloadend = () => { setConfigAndSync({...config, hospitalLogo: reader.result}); };
         reader.readAsDataURL(file);
     }
   };
@@ -346,7 +369,7 @@ const App = () => {
                  <div className="flex items-center justify-between p-2 border-b border-slate-200"><span className="font-bold text-slate-700 flex items-center gap-2"><Activity className="w-4 h-4 text-indigo-500"/> InstaPay</span><span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.instapay}</span></div>
                  <div className="flex items-center justify-between p-2"><span className="font-bold text-slate-700 flex items-center gap-2"><Phone className="w-4 h-4 text-green-600"/> محفظة</span><span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.wallet}</span></div>
               </div>
-              <div className="text-center space-y-3"><p className="text-xs text-slate-500">بعد التحويل، اضغط بالأسفل لإرسال صورة التحويل واتساب</p><a href={`https://wa.me/${paymentInfo.whatsapp}?text=أريد الاشتراك في تطبيق الروستر. قمت بتحويل المبلغ.`} target="_blank" className="w-full block bg-green-500 text-white p-3 rounded-xl font-bold hover:bg-green-600 shadow-lg shadow-green-200 transition-transform hover:-translate-y-1"><div className="flex items-center justify-center gap-2"><MessageCircle /> تفعيل الاشتراك عبر واتساب</div></a></div>
+              <div className="text-center space-y-3"><p className="text-xs text-slate-500">بعد التحويل، انسخ "كود الحساب" من الإعدادات وارسله لنا واتساب</p><a href={`https://wa.me/${paymentInfo.whatsapp}?text=أريد تفعيل الاشتراك. هذا كود حسابي: ${userId}`} target="_blank" className="w-full block bg-green-500 text-white p-3 rounded-xl font-bold hover:bg-green-600 shadow-lg shadow-green-200 transition-transform hover:-translate-y-1"><div className="flex items-center justify-center gap-2"><MessageCircle /> إرسال الكود لتفعيل الاشتراك</div></a></div>
             </div>
         </div>
     </div>
@@ -359,28 +382,19 @@ const App = () => {
       {showAuthModal && renderAuthModal()}
       {showPaymentModal && renderPaymentModal()}
       
-      {/* --- PRINT HEADER (Visible ONLY when printing) --- */}
       <div className="hidden print:block p-8 border-b-2 border-slate-800 mb-6">
          <div className="flex justify-between items-center">
             <div className="flex items-center gap-4">
-               {config.hospitalLogo ? (
-                  <img src={config.hospitalLogo} className="h-24 w-auto object-contain" alt="Logo"/>
-               ) : (
-                  <Activity className="w-16 h-16 text-slate-800" />
-               )}
+               {config.hospitalLogo ? (<img src={config.hospitalLogo} className="h-24 w-auto object-contain" alt="Logo"/>) : (<Activity className="w-16 h-16 text-slate-800" />)}
                <div>
                   <h1 className="text-4xl font-black text-slate-900">{config.hospitalName || "ROSTER MAKER"}</h1>
                   <p className="text-xl text-slate-600 mt-1">جدول نوبتجيات التمريض - شهر {months[config.month]} {config.year}</p>
                </div>
             </div>
-            <div className="text-left text-sm text-slate-500">
-               <p>تم الإنشاء بواسطة Roster Maker</p>
-               <p>{new Date().toLocaleDateString()}</p>
-            </div>
+            <div className="text-left text-sm text-slate-500"><p>تم الإنشاء بواسطة Roster Maker</p><p>{new Date().toLocaleDateString()}</p></div>
          </div>
       </div>
 
-      {/* --- APP HEADER (Hidden when printing) --- */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm backdrop-blur-md bg-opacity-95 print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-20 items-center">
@@ -427,19 +441,41 @@ const App = () => {
 
         {activeTab === 'settings' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 space-y-8">
+             
+             {/* --- كود المستخدم (للنسخ) --- */}
+             <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex justify-between items-center">
+                <div>
+                    <h4 className="font-bold text-indigo-900 text-sm">كود الحساب (User ID)</h4>
+                    <p className="text-xs text-indigo-600 mt-1 font-mono select-all">{userId || "غير مسجل"}</p>
+                </div>
+                <button onClick={() => {navigator.clipboard.writeText(userId); alert("تم النسخ!");}} className="text-indigo-600 hover:bg-indigo-100 p-2 rounded-full"><Copy className="w-5 h-5"/></button>
+             </div>
+
+             {/* --- لوحة الأدمن --- */}
              {isAdmin && (
                  <div className="bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 overflow-hidden">
-                     <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2"><ShieldCheck className="text-emerald-400"/><h3 className="font-bold text-lg">لوحة تحكم الأدمن (تعديل بيانات الدفع)</h3></div>
-                     <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div><label className="block text-sm font-medium text-slate-400 mb-1">السعر</label><input type="text" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" /></div>
-                        <div><label className="block text-sm font-medium text-slate-400 mb-1">InstaPay Username</label><input type="text" value={paymentInfo.instapay} onChange={(e) => setPaymentInfo({...paymentInfo, instapay: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" /></div>
-                        <div><label className="block text-sm font-medium text-slate-400 mb-1">رقم المحفظة</label><input type="text" value={paymentInfo.wallet} onChange={(e) => setPaymentInfo({...paymentInfo, wallet: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" /></div>
-                        <div><label className="block text-sm font-medium text-slate-400 mb-1">رقم واتساب</label><input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" /></div>
-                        <div className="md:col-span-2"><button onClick={updateAdminSettings} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-all"><Save className="w-5 h-5"/> حفظ التعديلات العامة</button></div>
+                     <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2"><ShieldCheck className="text-emerald-400"/><h3 className="font-bold text-lg">لوحة تحكم الأدمن</h3></div>
+                     <div className="p-6 space-y-6">
+                        {/* تفعيل الاشتراكات */}
+                        <div className="bg-slate-700/50 p-4 rounded-lg border border-slate-600">
+                            <h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2"><UserCheck className="w-4 h-4"/> تفعيل اشتراك لمستخدم</h4>
+                            <div className="flex gap-2">
+                                <input type="text" placeholder="ضع كود المستخدم هنا (UID)" value={targetUserUid} onChange={(e) => setTargetUserUid(e.target.value)} className="flex-1 p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm"/>
+                                <button onClick={activateUserSubscription} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-sm font-bold">تفعيل سنة</button>
+                            </div>
+                        </div>
+                        
+                        {/* تعديل الأسعار */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label className="block text-xs text-slate-400 mb-1">السعر</label><input type="text" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
+                            <div><label className="block text-xs text-slate-400 mb-1">رقم واتساب</label><input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
+                        </div>
+                        <button onClick={updateAdminSettings} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded font-bold text-sm flex items-center justify-center gap-2"><Save className="w-4 h-4"/> حفظ بيانات الدفع</button>
                      </div>
                  </div>
              )}
 
+             {/* --- باقي الإعدادات (هوية المستشفى، نظام العمل...) --- */}
              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="md:col-span-2 space-y-6">
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6 space-y-4">
@@ -464,26 +500,18 @@ const App = () => {
                     </div>
                 </div>
 
-                {/* --- قسم الهوية (للمشتركين فقط) --- */}
                 <div>
                     <div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden ${!isPremium ? 'opacity-70 pointer-events-none relative' : ''}`}>
                         {!isPremium && <div className="absolute inset-0 flex items-center justify-center bg-slate-100/50 z-10"><span className="bg-slate-800 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1"><Lock className="w-3 h-3"/> للمشتركين فقط</span></div>}
                         <div className="p-6 space-y-4">
                             <h4 className="text-sm font-bold text-slate-400 uppercase flex items-center gap-2"><ImageIcon className="w-4 h-4"/> هوية المستشفى</h4>
                             <p className="text-xs text-slate-500">أضف شعار واسم المستشفى ليظهر في الطباعة.</p>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">اسم المستشفى / القسم</label>
-                                <input type="text" placeholder="مثال: مستشفى السلام - العناية" value={config.hospitalName || ""} onChange={(e) => setConfigAndSync({...config, hospitalName: e.target.value})} className="w-full p-3 border rounded-lg"/>
-                            </div>
+                            <div><label className="block text-sm font-medium text-slate-700 mb-2">اسم المستشفى / القسم</label><input type="text" placeholder="مثال: مستشفى السلام - العناية" value={config.hospitalName || ""} onChange={(e) => setConfigAndSync({...config, hospitalName: e.target.value})} className="w-full p-3 border rounded-lg"/></div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-2">الشعار (Logo)</label>
                                 <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:bg-slate-50 transition-colors cursor-pointer relative">
                                     <input type="file" accept="image/*" onChange={handleLogoUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                                    {config.hospitalLogo ? (
-                                        <img src={config.hospitalLogo} className="h-20 mx-auto object-contain mb-2" alt="Logo Preview"/>
-                                    ) : (
-                                        <Upload className="w-8 h-8 mx-auto text-slate-400 mb-2"/>
-                                    )}
+                                    {config.hospitalLogo ? (<img src={config.hospitalLogo} className="h-20 mx-auto object-contain mb-2" alt="Logo Preview"/>) : (<Upload className="w-8 h-8 mx-auto text-slate-400 mb-2"/>)}
                                     <span className="text-xs text-indigo-600 font-bold">اضغط لرفع صورة</span>
                                 </div>
                             </div>
@@ -494,7 +522,7 @@ const App = () => {
           </div>
         )}
 
-        {/* باقي التابات (الفريق، الجدول، تواصل) كما هي */}
+        {/* باقي التابات ... */}
         {activeTab === 'staff' && (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
              <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border">
@@ -581,23 +609,6 @@ const App = () => {
                        ))}
                     </tbody>
                  </table>
-              </div>
-           </div>
-        )}
-
-        {activeTab === 'contact' && (
-           <div className="animate-in fade-in slide-in-from-bottom-4 max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border overflow-hidden">
-              <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-10 text-center text-white">
-                 <MessageCircle className="w-12 h-12 mx-auto mb-2"/>
-                 <h2 className="text-2xl font-bold">تواصل مع المطور</h2>
-              </div>
-              <div className="p-8 space-y-6">
-                 <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border"><Mail className="text-indigo-600"/><span className="font-mono">mahmoudkhelfa20@gmail.com</span></div>
-                 <div className="grid grid-cols-3 gap-4 text-center">
-                    <a href="https://facebook.com" target="_blank" className="p-4 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100"><Facebook className="mx-auto mb-1"/><span className="text-xs font-bold">Facebook</span></a>
-                    <a href="https://instagram.com" target="_blank" className="p-4 bg-pink-50 text-pink-600 rounded-xl hover:bg-pink-100"><Instagram className="mx-auto mb-1"/><span className="text-xs font-bold">Instagram</span></a>
-                    <a href={`https://wa.me/${paymentInfo.whatsapp}`} target="_blank" className="p-4 bg-green-50 text-green-600 rounded-xl hover:bg-green-100"><Phone className="mx-auto mb-1"/><span className="text-xs font-bold">WhatsApp</span></a>
-                 </div>
               </div>
            </div>
         )}
