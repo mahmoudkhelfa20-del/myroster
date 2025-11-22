@@ -37,7 +37,7 @@ const App = () => {
   
   // Admin State
   const isAdmin = userId === ADMIN_UID;
-  const [targetUserUid, setTargetUserUid] = useState(""); // لتفعيل اشتراكات الآخرين
+  const [targetUserUid, setTargetUserUid] = useState(""); 
   const [paymentInfo, setPaymentInfo] = useState({
     price: "1000 جنيه",
     instapay: "mahmoudkhelfa@instapay",
@@ -103,8 +103,10 @@ const App = () => {
     }
   };
 
-  const roles = ['Charge', 'Medication', 'Staff'];
-  
+  // --- تحديث قائمة الأدوار لتشمل الأنواع الجديدة ---
+  const roles = ['Charge', 'Medication', 'Staff', 'Nurse Aid', 'Intern (Released)', 'Intern (Not Released)'];
+  const isCountable = (role) => ['Charge', 'Medication', 'Staff', 'Intern (Released)'].includes(role);
+
   // --- LISTENERS ---
   useEffect(() => {
     const fetchPaymentSettings = async () => {
@@ -172,7 +174,6 @@ const App = () => {
     } catch (e) { console.error(e); }
   };
 
-  // دالة الأدمن: تحديث بيانات الدفع العامة
   const updateAdminSettings = async () => {
       if (!isAdmin) return;
       if(window.confirm("هل تريد حفظ التعديلات العامة؟")) {
@@ -181,27 +182,17 @@ const App = () => {
       }
   };
 
-  // دالة الأدمن: تفعيل اشتراك لمستخدم آخر
   const activateUserSubscription = async () => {
       if (!isAdmin) return;
       if (!targetUserUid) { alert("أدخل كود المستخدم أولاً"); return; }
-      
       const nextYear = new Date();
       nextYear.setFullYear(nextYear.getFullYear() + 1);
-      const expiryString = nextYear.toISOString().split('T')[0]; // YYYY-MM-DD
-
-      if(window.confirm(`هل أنت متأكد من تفعيل الاشتراك للمستخدم ${targetUserUid} حتى ${expiryString}؟`)) {
+      const expiryString = nextYear.toISOString().split('T')[0];
+      if(window.confirm(`تفعيل للمستخدم ${targetUserUid} حتى ${expiryString}؟`)) {
           try {
-              // تحديث مستند المستخدم المستهدف
-              await updateDoc(doc(db, "rosters", targetUserUid), {
-                  subscriptionEndDate: expiryString,
-                  isPremium: true // للتوافق
-              });
-              alert(`تم التفعيل بنجاح! ينتهي في: ${expiryString}`);
-              setTargetUserUid(""); // مسح الخانة
-          } catch (e) {
-              alert("فشل التفعيل! تأكد أن الـ UID صحيح وأن المستخدم سجل دخول مرة واحدة على الأقل.\n\nالخطأ: " + e.message);
-          }
+              await updateDoc(doc(db, "rosters", targetUserUid), { subscriptionEndDate: expiryString, isPremium: true });
+              alert(`تم التفعيل! ينتهي: ${expiryString}`); setTargetUserUid("");
+          } catch (e) { alert("فشل التفعيل: " + e.message); }
       }
   };
 
@@ -228,15 +219,14 @@ const App = () => {
 
   const removeStaff = (id) => setStaffListAndSync(staffList.filter(s => s.id !== id));
   const updateStaff = (id, field, value) => setStaffListAndSync(staffList.map(s => s.id === id ? { ...s, [field]: value } : s));
-  
   const toggleVacationDay = (staffId, dayIndex) => {
     const staff = staffList.find(s => s.id === staffId);
     let newVacations = staff.vacationDays.includes(dayIndex) ? staff.vacationDays.filter(d => d !== dayIndex) : [...staff.vacationDays, dayIndex];
     setStaffListAndSync(staffList.map(s => s.id === staffId ? { ...s, vacationDays: newVacations } : s));
   };
-
   const resetRoster = () => { if(window.confirm("هل أنت متأكد؟")) { setRosterAndSync([]); setLogs([]); setStaffStats({}); } };
 
+  // --- 🧠 خوارزمية التوزيع الذكية (المعدلة) ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
@@ -245,12 +235,18 @@ const App = () => {
     let staffState = {}; 
     staffList.forEach(s => staffState[s.id] = { lastShift: null, consecutiveDays: 0, totalShifts: 0 });
 
+    // 1. التوزيع الأساسي (يوم بيوم)
     for (let dayIndex = 1; dayIndex <= config.durationDays; dayIndex++) {
       const dateInfo = getFullDateLabel(dayIndex);
       let dailyShifts = {};
       shiftTypes.forEach(shift => {
         let assignedShiftStaff = []; 
-        let needCharge = 1; let needMed = config.requireMedicationNurse ? 1 : 0; let needStaff = config.minStaffOnlyCount; 
+        let needCharge = 1; 
+        let needMed = config.requireMedicationNurse ? 1 : 0; 
+        let needStaff = config.minStaffOnlyCount; 
+        // Nurse Aid مطلوب واحد على الأقل
+        let needAid = 1;
+
         const isAvailable = (staff) => {
           const state = staffState[staff.id];
           if (staff.vacationDays.includes(dayIndex)) return false;
@@ -260,6 +256,7 @@ const App = () => {
           if (state.totalShifts >= staff.targetShifts + 2) return false;
           return true;
         };
+
         let candidates = staffList.filter(s => isAvailable(s));
         const scoreStaff = (staff) => { 
           let score = (staff.targetShifts - (staffState[staff.id].totalShifts || 0)) * 10;
@@ -268,18 +265,61 @@ const App = () => {
           return score;
         };
         candidates.sort((a, b) => scoreStaff(b) - scoreStaff(a));
+
+        // أ. تعيين Charge
         let chargeNurse = candidates.find(s => s.role === 'Charge');
-        if (!chargeNurse && candidates.length > 0) { chargeNurse = candidates[0]; generationLogs.push(`${dateInfo.str} ${shift.label}: ${chargeNurse.name} Acting Charge.`); }
-        if (chargeNurse) assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' });
+        if (!chargeNurse && candidates.length > 0) { 
+            chargeNurse = candidates.find(s => isCountable(s.role) && s.grade === 'A'); // Try find Senior Staff
+        }
+        if (chargeNurse) {
+            assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' });
+            // Charge counts as Staff if needed (usually they are separate but assume they cover logic)
+        }
+
+        // ب. تعيين Nurse Aid (واحد إجباري)
+        if (needAid > 0) {
+            const aid = candidates.find(s => s.role === 'Nurse Aid' && !assignedShiftStaff.some(a => a.id === s.id));
+            if (aid) {
+                assignedShiftStaff.push({ ...aid, assignedRole: 'Nurse Aid' });
+            } else {
+                // Log warning if no Aid available
+                // generationLogs.push(`Day ${dayIndex} ${shift.label}: No Nurse Aid available.`);
+            }
+        }
+
+        // ج. تعيين Medication
         if (needMed > 0) {
           const medNurse = candidates.find(s => s.role === 'Medication' && !assignedShiftStaff.some(a => a.id === s.id));
           if (medNurse) assignedShiftStaff.push({ ...medNurse, assignedRole: 'Medication' });
         }
-        while (needStaff > 0) {
-          const nextStaff = candidates.find(s => !assignedShiftStaff.some(a => a.id === s.id));
-          if (nextStaff) assignedShiftStaff.push({ ...nextStaff, assignedRole: 'Staff' }); else break;
-          needStaff--;
+
+        // د. إكمال العدد (Staff + Intern Released)
+        // نحسب الموجودين حالياً (Charge + Med + Staff + Released)
+        let currentCountable = assignedShiftStaff.filter(s => isCountable(s.role)).length;
+        
+        while (currentCountable < needStaff) {
+          const nextStaff = candidates.find(s => 
+            !assignedShiftStaff.some(a => a.id === s.id) && 
+            isCountable(s.role)
+          );
+          if (nextStaff) {
+              assignedShiftStaff.push({ ...nextStaff, assignedRole: 'Staff' });
+              currentCountable++;
+          } else { break; }
         }
+
+        // هـ. إضافة Intern Not Released (زيادة للتعليم ولا ينقص العدد المطلوب)
+        const internsNotReleased = candidates.filter(s => 
+            s.role === 'Intern (Not Released)' && 
+            !assignedShiftStaff.some(a => a.id === s.id) &&
+            staffState[s.id].totalShifts < s.targetShifts
+        );
+        // نأخذ واحد أو اثنين حسب المتاح
+        if (internsNotReleased.length > 0) {
+            assignedShiftStaff.push({ ...internsNotReleased[0], assignedRole: 'Intern (Training)' });
+        }
+
+        // تحديث الحالة
         assignedShiftStaff.forEach(s => { staffState[s.id].lastShift = shift.code; staffState[s.id].consecutiveDays += 1; staffState[s.id].totalShifts += 1; });
         const workedIds = assignedShiftStaff.map(s => s.id);
         staffList.forEach(s => { if (!workedIds.includes(s.id)) { staffState[s.id].consecutiveDays = 0; staffState[s.id].lastShift = null; } });
@@ -287,6 +327,37 @@ const App = () => {
       });
       newRoster.push({ dayIndex, dateInfo, shifts: dailyShifts });
     }
+
+    // 2. مرحلة ما بعد المعالجة (تكملة Nurse Aid في الأحد والاثنين)
+    // Post-Processing Logic for Nurse Aids Overflow
+    const nurseAids = staffList.filter(s => s.role === 'Nurse Aid');
+    nurseAids.forEach(aid => {
+        // لو لسه مكملش التارجت
+        if (staffState[aid.id].totalShifts < aid.targetShifts) {
+            // نلف على الأيام تاني
+            for (let r of newRoster) {
+                if (staffState[aid.id].totalShifts >= aid.targetShifts) break;
+                
+                // الأحد (0) أو الاثنين (1)
+                const dayOfWeek = r.dateInfo.dateObj.getDay();
+                if (dayOfWeek === 0 || dayOfWeek === 1) {
+                    // هل هو شغال في اليوم ده أصلاً؟
+                    const isWorking = Object.values(r.shifts).flat().some(s => s.id === aid.id);
+                    
+                    if (!isWorking) {
+                        // نضيفه Day شيفت
+                        // Note: We only support 'D' for overflow as per request
+                        const dayShiftCode = config.shiftSystem === '12h' ? 'D' : 'M'; // Default to Morning if 8h
+                        if (r.shifts[dayShiftCode]) {
+                            r.shifts[dayShiftCode].push({ ...aid, assignedRole: 'Nurse Aid (Extra)' });
+                            staffState[aid.id].totalShifts += 1;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
     setRosterAndSync(newRoster); setLogs(generationLogs); setStaffStats(staffState); setActiveTab('roster');
   };
 
@@ -441,22 +512,15 @@ const App = () => {
 
         {activeTab === 'settings' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 space-y-8">
-             
-             {/* --- كود المستخدم (للنسخ) --- */}
              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex justify-between items-center">
-                <div>
-                    <h4 className="font-bold text-indigo-900 text-sm">كود الحساب (User ID)</h4>
-                    <p className="text-xs text-indigo-600 mt-1 font-mono select-all">{userId || "غير مسجل"}</p>
-                </div>
+                <div><h4 className="font-bold text-indigo-900 text-sm">كود الحساب (User ID)</h4><p className="text-xs text-indigo-600 mt-1 font-mono select-all">{userId || "غير مسجل"}</p></div>
                 <button onClick={() => {navigator.clipboard.writeText(userId); alert("تم النسخ!");}} className="text-indigo-600 hover:bg-indigo-100 p-2 rounded-full"><Copy className="w-5 h-5"/></button>
              </div>
 
-             {/* --- لوحة الأدمن --- */}
              {isAdmin && (
                  <div className="bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 overflow-hidden">
                      <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2"><ShieldCheck className="text-emerald-400"/><h3 className="font-bold text-lg">لوحة تحكم الأدمن</h3></div>
                      <div className="p-6 space-y-6">
-                        {/* تفعيل الاشتراكات */}
                         <div className="bg-slate-700/50 p-4 rounded-lg border border-slate-600">
                             <h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2"><UserCheck className="w-4 h-4"/> تفعيل اشتراك لمستخدم</h4>
                             <div className="flex gap-2">
@@ -464,8 +528,6 @@ const App = () => {
                                 <button onClick={activateUserSubscription} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-sm font-bold">تفعيل سنة</button>
                             </div>
                         </div>
-                        
-                        {/* تعديل الأسعار */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div><label className="block text-xs text-slate-400 mb-1">السعر</label><input type="text" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
                             <div><label className="block text-xs text-slate-400 mb-1">رقم واتساب</label><input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
@@ -475,7 +537,6 @@ const App = () => {
                  </div>
              )}
 
-             {/* --- باقي الإعدادات (هوية المستشفى، نظام العمل...) --- */}
              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="md:col-span-2 space-y-6">
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6 space-y-4">
@@ -522,7 +583,7 @@ const App = () => {
           </div>
         )}
 
-        {/* باقي التابات ... */}
+        {/* باقي التابات (الفريق، الجدول، تواصل) كما هي */}
         {activeTab === 'staff' && (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
              <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border">
@@ -609,6 +670,23 @@ const App = () => {
                        ))}
                     </tbody>
                  </table>
+              </div>
+           </div>
+        )}
+
+        {activeTab === 'contact' && (
+           <div className="animate-in fade-in slide-in-from-bottom-4 max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border overflow-hidden">
+              <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-10 text-center text-white">
+                 <MessageCircle className="w-12 h-12 mx-auto mb-2"/>
+                 <h2 className="text-2xl font-bold">تواصل مع المطور</h2>
+              </div>
+              <div className="p-8 space-y-6">
+                 <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border"><Mail className="text-indigo-600"/><span className="font-mono">mahmoudkhelfa20@gmail.com</span></div>
+                 <div className="grid grid-cols-3 gap-4 text-center">
+                    <a href="https://facebook.com" target="_blank" className="p-4 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100"><Facebook className="mx-auto mb-1"/><span className="text-xs font-bold">Facebook</span></a>
+                    <a href="https://instagram.com" target="_blank" className="p-4 bg-pink-50 text-pink-600 rounded-xl hover:bg-pink-100"><Instagram className="mx-auto mb-1"/><span className="text-xs font-bold">Instagram</span></a>
+                    <a href={`https://wa.me/${paymentInfo.whatsapp}`} target="_blank" className="p-4 bg-green-50 text-green-600 rounded-xl hover:bg-green-100"><Phone className="mx-auto mb-1"/><span className="text-xs font-bold">WhatsApp</span></a>
+                 </div>
               </div>
            </div>
         )}
