@@ -1,21 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Users, 
-  Settings, 
-  Calendar, 
-  Plus, 
-  Trash2, 
-  Play, 
-  AlertTriangle, 
-  Activity,
-  UserCog,
-  MessageCircle,
-  LogOut,
-  User,
-  LogIn,
-  Save,
-  Mail, Phone, Facebook, Instagram, Sun, Moon, Clock, RotateCcw, CalendarDays,
-  Download, FileText, Printer 
+  Users, Settings, Calendar, Plus, Trash2, Play, Activity,
+  UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X
 } from 'lucide-react';
 
 // 1. Firebase Imports
@@ -25,7 +12,7 @@ import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 // 2. Firebase Configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyDYfEuKC2x15joIBS082can9w0jdy_6_-0", 
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDYfEuKC2x15joIBS082can9w0jdy_6_-0", 
   authDomain: "roster-maker-app.firebaseapp.com",
   projectId: "roster-maker-app",
   storageBucket: "roster-maker-app.firebasestorage.app",
@@ -36,13 +23,25 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
+// --- بيانات الدفع الخاصة بك ---
+const PAYMENT_INFO = {
+  price: "150 جنيه",
+  instapay: "mahmoudkhelfa@instapay", // تم التحديث
+  wallet: "01205677601", // تم التحديث
+  whatsapp: "201205677601" // رقم الواتساب لاستقبال التحويلات
+};
+
 // --- START OF APP COMPONENT ---
 const App = () => {
   const [activeTab, setActiveTab] = useState('staff');
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
+  const [isPremium, setIsPremium] = useState(false); // حالة الاشتراك
   const [loading, setLoading] = useState(true);
+  
+  // Modals State
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [authMode, setAuthMode] = useState('login');
   const [authError, setAuthError] = useState(null);
   
@@ -50,13 +49,11 @@ const App = () => {
   const [config, setConfig] = useState(null); 
   const [staffList, setStaffList] = useState(null);
   const [roster, setRoster] = useState([]);
-  
   const [logs, setLogs] = useState([]);
   const [staffStats, setStaffStats] = useState({});
 
   // --- Helpers ---
   const months = [ "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر" ];
-  const isPremiumUser = userEmail !== null; 
 
   const getDateFromIndex = (index) => { 
     if (!config) return new Date();
@@ -89,8 +86,6 @@ const App = () => {
   };
 
   const roles = ['Charge', 'Medication', 'Staff'];
-  const grades = ['A', 'B', 'C', 'D'];
-  const isSenior = (grade) => ['A', 'B'].includes(grade);
 
   // --- FIREBASE LOGIC ---
   const defaultInitialConfig = {
@@ -109,15 +104,17 @@ const App = () => {
       if (user) {
         setUserId(user.uid);
         setUserEmail(user.email);
+        if (user.isAnonymous) setIsPremium(false); 
       } else {
-        try { await signInAnonymously(auth); } catch(e) { console.error(e); }
+        setUserId(null);
+        setUserEmail(null);
       }
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
-  // Data Listener
+  // Data Listener (Check Premium)
   useEffect(() => {
     if (!userId) return;
     const docRef = doc(db, "rosters", userId);
@@ -127,9 +124,16 @@ const App = () => {
         setConfig(data.config || defaultInitialConfig);
         setStaffList(data.staffList || defaultInitialStaff);
         setRoster(data.roster || []);
+        setIsPremium(data.isPremium === true); 
       } else {
-        await setDoc(docRef, { config: defaultInitialConfig, staffList: defaultInitialStaff, roster: [] });
+        await setDoc(docRef, { 
+            config: defaultInitialConfig, 
+            staffList: defaultInitialStaff, 
+            roster: [],
+            isPremium: false 
+        });
         setConfig(defaultInitialConfig); setStaffList(defaultInitialStaff);
+        setIsPremium(false);
       }
     });
     return () => unsubscribe();
@@ -139,11 +143,10 @@ const App = () => {
   const updateFirestore = async (newConfig = config, newStaffList = staffList, newRoster = roster) => {
     if (!userId || !config || !staffList) return; 
     try {
-      await setDoc(doc(db, "rosters", userId), { config: newConfig, staffList: newStaffList, roster: newRoster });
+      await setDoc(doc(db, "rosters", userId), { config: newConfig, staffList: newStaffList, roster: newRoster }, { merge: true });
     } catch (e) { console.error(e); }
   };
 
-  // Setters
   const setConfigAndSync = (newConfig) => { setConfig(newConfig); updateFirestore(newConfig, staffList, roster); };
   const setStaffListAndSync = (newStaffList) => { setStaffList(newStaffList); updateFirestore(config, newStaffList, roster); };
   const setRosterAndSync = (newRoster) => { setRoster(newRoster); updateFirestore(config, staffList, newRoster); };
@@ -156,7 +159,6 @@ const App = () => {
   };
 
   const removeStaff = (id) => setStaffListAndSync(staffList.filter(s => s.id !== id));
-  
   const updateStaff = (id, field, value) => setStaffListAndSync(staffList.map(s => s.id === id ? { ...s, [field]: value } : s));
   
   const toggleVacationDay = (staffId, dayIndex) => {
@@ -167,13 +169,6 @@ const App = () => {
 
   const resetRoster = () => { if(window.confirm("هل أنت متأكد؟")) { setRosterAndSync([]); setLogs([]); setStaffStats({}); } };
 
-  const clearAllData = async () => {
-    if(window.confirm("تحذير: سيتم مسح جميع بيانات. هل أنت متأكد؟")) {
-      await setDoc(doc(db, "rosters", userId), { config: defaultInitialConfig, staffList: defaultInitialStaff, roster: [] });
-      await signOut(auth); window.location.reload();
-    }
-  };
-  
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
@@ -209,12 +204,12 @@ const App = () => {
         candidates.sort((a, b) => scoreStaff(b) - scoreStaff(a));
 
         let chargeNurse = candidates.find(s => s.role === 'Charge');
-        if (!chargeNurse) { chargeNurse = candidates.find(s => isSenior(s.grade)); if (chargeNurse) generationLogs.push(`${dateInfo.str} ${shift.label}: ${chargeNurse.name} Acting Charge.`); }
-        if (chargeNurse) assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' }); else generationLogs.push(`${dateInfo.str} ${shift.label}: CRITICAL - No Charge.`);
+        if (!chargeNurse && candidates.length > 0) { chargeNurse = candidates[0]; generationLogs.push(`${dateInfo.str} ${shift.label}: ${chargeNurse.name} Acting Charge.`); }
+        if (chargeNurse) assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' });
 
         if (needMed > 0) {
           const medNurse = candidates.find(s => s.role === 'Medication' && !assignedShiftStaff.some(a => a.id === s.id));
-          if (medNurse) assignedShiftStaff.push({ ...medNurse, assignedRole: 'Medication' }); else generationLogs.push(`${dateInfo.str} ${shift.label}: Warning - No Med Nurse.`);
+          if (medNurse) assignedShiftStaff.push({ ...medNurse, assignedRole: 'Medication' });
         }
 
         while (needStaff > 0) {
@@ -233,14 +228,19 @@ const App = () => {
     setRosterAndSync(newRoster); setLogs(generationLogs); setStaffStats(staffState); setActiveTab('roster');
   };
 
-  // --- Export Features ---
-  const exportRosterToCSV = () => {
-    if (!isPremiumUser) { alert("هذه ميزة احترافية. يرجى تسجيل الدخول."); return; }
-    if (roster.length === 0) { alert("الجدول فارغ!"); return; }
+  // --- PREMIUM ACTIONS ---
+  const handlePremiumFeature = (action) => {
+    if (isPremium) {
+      action();
+    } else {
+      setShowPaymentModal(true);
+    }
+  };
 
+  const exportRosterToCSV = () => {
+    if (roster.length === 0) { alert("الجدول فارغ!"); return; }
     const shiftTypes = getShiftsForSystem(config.shiftSystem).map(s => s.label);
     let csvContent = `التاريخ,اليوم,${shiftTypes.join(',')}\n`;
-
     roster.forEach(row => {
       let rowData = `${row.dateInfo.str},${row.dateInfo.dayName}`;
       shiftTypes.forEach(label => {
@@ -251,7 +251,6 @@ const App = () => {
       });
       csvContent += rowData + '\n';
     });
-
     const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -263,11 +262,10 @@ const App = () => {
   };
 
   const exportRosterToPDF = () => {
-     if (!isPremiumUser) { alert("هذه ميزة احترافية. يرجى تسجيل الدخول."); return; }
-     // ميزة الطباعة البسيطة (PDF)
      window.print();
   };
 
+  // --- AUTH & MODALS ---
   const handleAuthSubmit = async (e, mode) => {
     e.preventDefault();
     setAuthError(null);
@@ -278,7 +276,6 @@ const App = () => {
     } catch (error) { setAuthError("فشل العملية: " + error.message); }
   };
 
-  // --- Renderers ---
   const renderLoading = () => (
     <div className="text-center py-20 animate-pulse">
       <div className="border-t-4 border-indigo-500 border-solid rounded-full w-12 h-12 mx-auto mb-4 animate-spin"></div>
@@ -288,7 +285,7 @@ const App = () => {
 
   const renderAuthModal = () => (
     <div className="fixed inset-0 bg-slate-900 bg-opacity-75 z-50 flex items-center justify-center p-4" onClick={() => setShowAuthModal(false)}>
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 relative" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-xl font-bold text-slate-800 mb-4 text-center">{authMode === 'login' ? 'تسجيل الدخول' : 'إنشاء حساب'}</h2>
             {authError && <div className="bg-rose-100 text-rose-700 p-3 rounded-lg mb-4 text-sm text-center">{authError}</div>}
             <form onSubmit={(e) => handleAuthSubmit(e, authMode)} className="space-y-4">
@@ -303,6 +300,43 @@ const App = () => {
     </div>
   );
 
+  const renderPaymentModal = () => (
+    <div className="fixed inset-0 bg-slate-900 bg-opacity-80 z-50 flex items-center justify-center p-4" onClick={() => setShowPaymentModal(false)}>
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-indigo-600 to-purple-700 p-6 text-white text-center relative">
+              <button onClick={() => setShowPaymentModal(false)} className="absolute top-4 left-4 text-white/80 hover:text-white"><X/></button>
+              <Lock className="w-12 h-12 mx-auto mb-2 opacity-90" />
+              <h2 className="text-xl font-bold">ميزة للمشتركين فقط</h2>
+              <p className="text-indigo-100 text-sm mt-1">اشترك الآن واحصل على كامل الصلاحيات</p>
+            </div>
+            <div className="p-6 space-y-6">
+              <div className="text-center space-y-2">
+                 <p className="text-gray-600 font-bold">سعر الاشتراك الشامل</p>
+                 <div className="text-3xl font-black text-indigo-600">{PAYMENT_INFO.price} <span className="text-sm text-gray-400">/ مدى الحياة</span></div>
+              </div>
+              
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                 <div className="flex items-center justify-between p-2 border-b border-slate-200">
+                    <span className="font-bold text-slate-700 flex items-center gap-2"><Activity className="w-4 h-4 text-indigo-500"/> InstaPay</span>
+                    <span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{PAYMENT_INFO.instapay}</span>
+                 </div>
+                 <div className="flex items-center justify-between p-2">
+                    <span className="font-bold text-slate-700 flex items-center gap-2"><Phone className="w-4 h-4 text-green-600"/> محفظة</span>
+                    <span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{PAYMENT_INFO.wallet}</span>
+                 </div>
+              </div>
+
+              <div className="text-center space-y-3">
+                <p className="text-xs text-slate-500">بعد التحويل، اضغط بالأسفل لإرسال صورة التحويل واتساب</p>
+                <a href={`https://wa.me/${PAYMENT_INFO.whatsapp}?text=أريد الاشتراك في تطبيق الروستر. قمت بتحويل المبلغ.`} target="_blank" className="w-full block bg-green-500 text-white p-3 rounded-xl font-bold hover:bg-green-600 shadow-lg shadow-green-200 transition-transform hover:-translate-y-1">
+                   <div className="flex items-center justify-center gap-2"><MessageCircle /> تفعيل الاشتراك عبر واتساب</div>
+                </a>
+              </div>
+            </div>
+        </div>
+    </div>
+  );
+
   if (loading || config === null || staffList === null) {
       return <div className="min-h-screen bg-slate-50 font-sans text-slate-900" dir="rtl"><main className="max-w-7xl mx-auto px-4 py-8">{renderLoading()}</main></div>;
   }
@@ -310,6 +344,8 @@ const App = () => {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-700" dir="rtl">
       {showAuthModal && renderAuthModal()}
+      {showPaymentModal && renderPaymentModal()}
+      
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm backdrop-blur-md bg-opacity-95 print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-20 items-center">
@@ -319,10 +355,13 @@ const App = () => {
               </div>
               <div>
                 <h1 className="text-2xl font-black text-slate-800 tracking-tight">ROSTER <span className="text-indigo-600">MAKER</span></h1>
-                <p className="text-xs text-slate-500 font-serif italic mt-0.5 tracking-wide">for Nurses</p>
+                <div className="flex items-center gap-2">
+                   <p className="text-xs text-slate-500 font-serif italic mt-0.5 tracking-wide">for Nurses</p>
+                   {isPremium && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold border border-amber-200">Premium 👑</span>}
+                </div>
               </div>
             </div>
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3 md:gap-6">
               <button onClick={userEmail ? () => signOut(auth) : () => setShowAuthModal(true)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${userEmail ? 'bg-rose-100 text-rose-600' : 'bg-indigo-100 text-indigo-600'}`}>
                   {userEmail ? <LogOut className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
                   {userEmail ? 'خروج' : 'دخول'}
@@ -335,7 +374,7 @@ const App = () => {
                   </button>
                 ))}
               </div>
-              <button onClick={() => { setActiveTab('roster'); generateRoster(); }} className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-6 py-2.5 rounded-full font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2 group">
+              <button onClick={() => { setActiveTab('roster'); generateRoster(); }} className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-4 md:px-6 py-2.5 rounded-full font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2 group">
                 <div className="bg-white/20 p-1 rounded-full group-hover:bg-white/30 transition-colors"><Play className="w-4 h-4 fill-current" /></div>
                 <span className="hidden sm:inline">توزيع</span>
               </button>
@@ -346,7 +385,6 @@ const App = () => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24">
         <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide print:hidden">
-            {/* Mobile Tabs */}
             {[ {id:'staff', icon:Users, label:'الفريق'}, {id:'settings', icon:UserCog, label:'الإعدادات'}, {id:'roster', icon:Calendar, label:'الجدول'}, {id:'contact', icon:MessageCircle, label:'تواصل'} ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-shrink-0 flex items-center px-4 py-2 rounded-full text-sm font-bold transition-all border ${activeTab === tab.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200'}`}>
                 <tab.icon className="w-4 h-4 ml-2" /> {tab.label}
@@ -437,8 +475,12 @@ const App = () => {
                     <h4 className="text-sm font-bold text-slate-600 flex items-center"><Activity className="w-5 h-5 ml-2 text-indigo-500"/> الإحصائيات</h4>
                     <div className="flex gap-2">
                        <button onClick={resetRoster} className="text-xs bg-slate-100 px-3 py-1 rounded hover:text-red-500 flex items-center"><RotateCcw className="w-3 h-3 ml-1"/> مسح</button>
-                       <button onClick={exportRosterToCSV} className="text-xs bg-emerald-500 text-white px-3 py-1 rounded hover:bg-emerald-600 flex items-center"><Download className="w-3 h-3 ml-1"/> CSV</button>
-                       <button onClick={exportRosterToPDF} className="text-xs bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600 flex items-center"><Printer className="w-3 h-3 ml-1"/> طباعة/PDF</button>
+                       <button onClick={() => handlePremiumFeature(exportRosterToCSV)} className={`text-xs px-3 py-1 rounded flex items-center ${isPremium ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-slate-200 text-slate-500'}`}>
+                          {isPremium ? <Download className="w-3 h-3 ml-1"/> : <Lock className="w-3 h-3 ml-1"/>} CSV
+                       </button>
+                       <button onClick={() => handlePremiumFeature(exportRosterToPDF)} className={`text-xs px-3 py-1 rounded flex items-center ${isPremium ? 'bg-indigo-500 text-white hover:bg-indigo-600' : 'bg-slate-200 text-slate-500'}`}>
+                           {isPremium ? <Printer className="w-3 h-3 ml-1"/> : <Lock className="w-3 h-3 ml-1"/>} طباعة/PDF
+                       </button>
                     </div>
                  </div>
                  <div className="flex space-x-3 space-x-reverse pb-2 min-w-max print:hidden">
@@ -498,7 +540,7 @@ const App = () => {
                  <div className="grid grid-cols-3 gap-4 text-center">
                     <a href="https://facebook.com" target="_blank" className="p-4 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100"><Facebook className="mx-auto mb-1"/><span className="text-xs font-bold">Facebook</span></a>
                     <a href="https://instagram.com" target="_blank" className="p-4 bg-pink-50 text-pink-600 rounded-xl hover:bg-pink-100"><Instagram className="mx-auto mb-1"/><span className="text-xs font-bold">Instagram</span></a>
-                    <a href="https://wa.me/201205677601" target="_blank" className="p-4 bg-green-50 text-green-600 rounded-xl hover:bg-green-100"><Phone className="mx-auto mb-1"/><span className="text-xs font-bold">WhatsApp</span></a>
+                    <a href={`https://wa.me/${PAYMENT_INFO.whatsapp}`} target="_blank" className="p-4 bg-green-50 text-green-600 rounded-xl hover:bg-green-100"><Phone className="mx-auto mb-1"/><span className="text-xs font-bold">WhatsApp</span></a>
                  </div>
               </div>
            </div>
