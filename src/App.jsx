@@ -24,7 +24,6 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 // --- إعدادات الأدمن ---
-// تم تحديث الـ UID الخاص بك هنا
 const ADMIN_UID = "lpHTOe8uAzbf8MNnX6SGw6W7B5h1"; 
 
 // --- START OF APP COMPONENT ---
@@ -32,7 +31,11 @@ const App = () => {
   const [activeTab, setActiveTab] = useState('staff');
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
+  
+  // Premium State
   const [isPremium, setIsPremium] = useState(false);
+  const [expiryDate, setExpiryDate] = useState(null); // لتخزين تاريخ الانتهاء
+
   const [loading, setLoading] = useState(true);
   
   // Admin State
@@ -50,7 +53,7 @@ const App = () => {
   const [authMode, setAuthMode] = useState('login');
   const [authError, setAuthError] = useState(null);
   
-  // Default Data (For Logout State)
+  // Default Data
   const defaultInitialConfig = {
     shiftSystem: '12h', allowDayAfterNight: false, requireMedicationNurse: true, allowMultipleCharge: false,
     minStaffOnlyCount: 3, startDay: 1, month: new Date().getMonth(), year: new Date().getFullYear(), durationDays: 30
@@ -105,7 +108,7 @@ const App = () => {
   
   // --- LISTENERS ---
   
-  // 1. Fetch Payment Settings (Global)
+  // 1. Fetch Payment Settings
   useEffect(() => {
     const fetchPaymentSettings = async () => {
         try {
@@ -119,7 +122,7 @@ const App = () => {
     fetchPaymentSettings();
   }, []);
 
-  // 2. Auth Listener (تم إصلاح مشكلة التعليق هنا)
+  // 2. Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -127,12 +130,12 @@ const App = () => {
         setUserEmail(user.email);
         if (user.isAnonymous) setIsPremium(false); 
       } else {
-        // عند تسجيل الخروج، نعيد البيانات الافتراضية فوراً ليفتح التطبيق
         setUserId(null);
         setUserEmail(null);
         setConfig(defaultInitialConfig);
         setStaffList(defaultInitialStaff);
         setIsPremium(false);
+        setExpiryDate(null);
         setShowAuthModal(true); 
       }
       setLoading(false);
@@ -140,7 +143,7 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // 3. User Data Listener
+  // 3. User Data Listener (هنا بنشوف التاريخ ونحدد الاشتراك)
   useEffect(() => {
     if (!userId) return;
     const docRef = doc(db, "rosters", userId);
@@ -150,7 +153,23 @@ const App = () => {
         setConfig(data.config || defaultInitialConfig);
         setStaffList(data.staffList || defaultInitialStaff);
         setRoster(data.roster || []);
-        setIsPremium(data.isPremium === true); 
+        
+        // --- منطق الاشتراك الجديد (بالتاريخ) ---
+        if (data.subscriptionEndDate) {
+            const now = new Date();
+            const expiry = new Date(data.subscriptionEndDate); // التاريخ المسجل
+            
+            if (expiry > now) {
+                setIsPremium(true);
+                setExpiryDate(data.subscriptionEndDate);
+            } else {
+                setIsPremium(false); // الاشتراك انتهى
+            }
+        } else {
+            // للتوافق مع القديم (لو لسه isPremium موجودة)
+            setIsPremium(data.isPremium === true);
+        }
+
       } else {
         await setDoc(docRef, { 
             config: defaultInitialConfig, 
@@ -189,14 +208,12 @@ const App = () => {
   const setStaffListAndSync = (newStaffList) => { setStaffList(newStaffList); updateFirestore(config, newStaffList, roster); };
   const setRosterAndSync = (newRoster) => { setRoster(newRoster); updateFirestore(config, staffList, newRoster); };
 
-  // --- إضافة الموظفين (مع قيد العدد) ---
+  // --- ACTIONS ---
   const addStaff = () => {
-    // التحقق من حد النسخة المجانية
     if (!isPremium && staffList.length >= 5) {
-        // إظهار رسالة تنبيه
         alert("عفواً، النسخة المجانية تدعم 5 ممرضين فقط.\nيرجى الاشتراك لإضافة عدد غير محدود.");
         setShowPaymentModal(true);
-        return; // وقف العملية
+        return; 
     }
 
     const newId = staffList.length > 0 ? Math.max(...staffList.map(s => s.id)) + 1 : 1;
@@ -322,7 +339,6 @@ const App = () => {
         <div className="border-t-4 border-indigo-500 border-solid rounded-full w-12 h-12 mx-auto mb-4 animate-spin"></div>
         <p className="text-indigo-600 font-bold">جاري الاتصال بالسحابة...</p>
       </div>
-      {/* Emergency Reset Button */}
       <button 
         onClick={() => { signOut(auth); window.location.reload(); }} 
         className="mt-4 text-xs text-slate-400 underline hover:text-red-500"
@@ -360,8 +376,8 @@ const App = () => {
             </div>
             <div className="p-6 space-y-6">
               <div className="text-center space-y-2">
-                 <p className="text-gray-600 font-bold">سعر الاشتراك الشامل</p>
-                 <div className="text-3xl font-black text-indigo-600">{paymentInfo.price} <span className="text-sm text-gray-400">/ مدى الحياة</span></div>
+                 <p className="text-gray-600 font-bold">سعر الاشتراك السنوي</p>
+                 <div className="text-3xl font-black text-indigo-600">{paymentInfo.price} <span className="text-sm text-gray-400">/ سنة</span></div>
               </div>
               
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
@@ -406,7 +422,7 @@ const App = () => {
                 <h1 className="text-2xl font-black text-slate-800 tracking-tight">ROSTER <span className="text-indigo-600">MAKER</span></h1>
                 <div className="flex items-center gap-2">
                    <p className="text-xs text-slate-500 font-serif italic mt-0.5 tracking-wide">for Nurses</p>
-                   {isPremium && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold border border-amber-200">Premium 👑</span>}
+                   {isPremium && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold border border-amber-200 flex items-center gap-1">Premium 👑 <span className="opacity-50 font-normal hidden sm:inline">| Exp: {expiryDate}</span></span>}
                    {isAdmin && <span className="text-[10px] bg-slate-800 text-white px-1.5 py-0.5 rounded-full font-bold">Admin 🛠️</span>}
                 </div>
               </div>
