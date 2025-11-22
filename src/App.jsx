@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, Edit3, ShieldCheck
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck
 } from 'lucide-react';
 
 // 1. Firebase Imports
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 
 // 2. Firebase Configuration
@@ -24,8 +24,8 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 // --- إعدادات الأدمن ---
-// ⚠️ ضع الـ UID الخاص بك هنا لتظهر لك لوحة التحكم
-const ADMIN_UID = "YOUR_ADMIN_UID_HERE"; 
+// تم تحديث الـ UID الخاص بك هنا
+const ADMIN_UID = "lpHTOe8uAzbf8MNnX6SGw6W7B5h1"; 
 
 // --- START OF APP COMPONENT ---
 const App = () => {
@@ -50,9 +50,20 @@ const App = () => {
   const [authMode, setAuthMode] = useState('login');
   const [authError, setAuthError] = useState(null);
   
+  // Default Data (For Logout State)
+  const defaultInitialConfig = {
+    shiftSystem: '12h', allowDayAfterNight: false, requireMedicationNurse: true, allowMultipleCharge: false,
+    minStaffOnlyCount: 3, startDay: 1, month: new Date().getMonth(), year: new Date().getFullYear(), durationDays: 30
+  };
+
+  const defaultInitialStaff = [
+    { id: 1, name: 'أحمد محمد', role: 'Charge', grade: 'A', preference: 'cycle', maxConsecutive: 3, targetShifts: 15, vacationDays: [] },
+    { id: 2, name: 'سارة علي', role: 'Staff', grade: 'A', preference: 'scattered', maxConsecutive: 4, targetShifts: 15, vacationDays: [] }, 
+  ];
+
   // Data States
-  const [config, setConfig] = useState(null); 
-  const [staffList, setStaffList] = useState(null);
+  const [config, setConfig] = useState(defaultInitialConfig); 
+  const [staffList, setStaffList] = useState(defaultInitialStaff);
   const [roster, setRoster] = useState([]);
   const [logs, setLogs] = useState([]);
   const [staffStats, setStaffStats] = useState({});
@@ -91,16 +102,6 @@ const App = () => {
   };
 
   const roles = ['Charge', 'Medication', 'Staff'];
-
-  const defaultInitialConfig = {
-    shiftSystem: '12h', allowDayAfterNight: false, requireMedicationNurse: true, allowMultipleCharge: false,
-    minStaffOnlyCount: 3, startDay: 1, month: new Date().getMonth(), year: new Date().getFullYear(), durationDays: 30
-  };
-
-  const defaultInitialStaff = [
-    { id: 1, name: 'أحمد محمد', role: 'Charge', grade: 'A', preference: 'cycle', maxConsecutive: 3, targetShifts: 15, vacationDays: [] },
-    { id: 2, name: 'سارة علي', role: 'Staff', grade: 'A', preference: 'scattered', maxConsecutive: 4, targetShifts: 15, vacationDays: [] }, 
-  ];
   
   // --- LISTENERS ---
   
@@ -112,15 +113,13 @@ const App = () => {
             const docSnap = await getDoc(docRef);
             if (docSnap.exists()) {
                 setPaymentInfo(docSnap.data());
-            } else {
-                // If not exists, use default state
             }
         } catch (e) { console.log("Error fetching settings:", e); }
     };
     fetchPaymentSettings();
   }, []);
 
-  // 2. Auth Listener (تم التصحيح)
+  // 2. Auth Listener (تم إصلاح مشكلة التعليق هنا)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -128,14 +127,15 @@ const App = () => {
         setUserEmail(user.email);
         if (user.isAnonymous) setIsPremium(false); 
       } else {
-        // حالة الخروج: نضع بيانات افتراضية لكي يفتح التطبيق
+        // عند تسجيل الخروج، نعيد البيانات الافتراضية فوراً ليفتح التطبيق
         setUserId(null);
         setUserEmail(null);
         setConfig(defaultInitialConfig);
         setStaffList(defaultInitialStaff);
-        setShowAuthModal(true); // إظهار نافذة الدخول تلقائياً
+        setIsPremium(false);
+        setShowAuthModal(true); 
       }
-      setLoading(false); // وقف التحميل
+      setLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -189,7 +189,16 @@ const App = () => {
   const setStaffListAndSync = (newStaffList) => { setStaffList(newStaffList); updateFirestore(config, newStaffList, roster); };
   const setRosterAndSync = (newRoster) => { setRoster(newRoster); updateFirestore(config, staffList, newRoster); };
 
+  // --- إضافة الموظفين (مع قيد العدد) ---
   const addStaff = () => {
+    // التحقق من حد النسخة المجانية
+    if (!isPremium && staffList.length >= 5) {
+        // إظهار رسالة تنبيه
+        alert("عفواً، النسخة المجانية تدعم 5 ممرضين فقط.\nيرجى الاشتراك لإضافة عدد غير محدود.");
+        setShowPaymentModal(true);
+        return; // وقف العملية
+    }
+
     const newId = staffList.length > 0 ? Math.max(...staffList.map(s => s.id)) + 1 : 1;
     const defaultTarget = config.shiftSystem === '12h' ? 15 : config.shiftSystem === '24h' ? 10 : 22;
     setStaffListAndSync([...staffList, { id: newId, name: 'ممرض جديد', role: 'Staff', grade: 'C', preference: 'cycle', maxConsecutive: 3, targetShifts: defaultTarget, vacationDays: [] }]);
