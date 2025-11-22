@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon
 } from 'lucide-react';
 
 // 1. Firebase Imports
@@ -31,17 +31,14 @@ const App = () => {
   const [activeTab, setActiveTab] = useState('staff');
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
-  
-  // Premium State
   const [isPremium, setIsPremium] = useState(false);
-  const [expiryDate, setExpiryDate] = useState(null); // لتخزين تاريخ الانتهاء
-
+  const [expiryDate, setExpiryDate] = useState(null);
   const [loading, setLoading] = useState(true);
   
   // Admin State
   const isAdmin = userId === ADMIN_UID;
   const [paymentInfo, setPaymentInfo] = useState({
-    price: "150 جنيه",
+    price: "1000 جنيه",
     instapay: "mahmoudkhelfa@instapay",
     wallet: "01205677601",
     whatsapp: "201205677601"
@@ -53,10 +50,12 @@ const App = () => {
   const [authMode, setAuthMode] = useState('login');
   const [authError, setAuthError] = useState(null);
   
-  // Default Data
+  // Data States
   const defaultInitialConfig = {
     shiftSystem: '12h', allowDayAfterNight: false, requireMedicationNurse: true, allowMultipleCharge: false,
-    minStaffOnlyCount: 3, startDay: 1, month: new Date().getMonth(), year: new Date().getFullYear(), durationDays: 30
+    minStaffOnlyCount: 3, startDay: 1, month: new Date().getMonth(), year: new Date().getFullYear(), durationDays: 30,
+    hospitalName: "", // اسم المستشفى
+    hospitalLogo: null // اللوجو (Base64)
   };
 
   const defaultInitialStaff = [
@@ -64,7 +63,6 @@ const App = () => {
     { id: 2, name: 'سارة علي', role: 'Staff', grade: 'A', preference: 'scattered', maxConsecutive: 4, targetShifts: 15, vacationDays: [] }, 
   ];
 
-  // Data States
   const [config, setConfig] = useState(defaultInitialConfig); 
   const [staffList, setStaffList] = useState(defaultInitialStaff);
   const [roster, setRoster] = useState([]);
@@ -107,22 +105,17 @@ const App = () => {
   const roles = ['Charge', 'Medication', 'Staff'];
   
   // --- LISTENERS ---
-  
-  // 1. Fetch Payment Settings
   useEffect(() => {
     const fetchPaymentSettings = async () => {
         try {
             const docRef = doc(db, "settings", "payment");
             const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-                setPaymentInfo(docSnap.data());
-            }
+            if (docSnap.exists()) { setPaymentInfo(docSnap.data()); }
         } catch (e) { console.log("Error fetching settings:", e); }
     };
     fetchPaymentSettings();
   }, []);
 
-  // 2. Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -135,7 +128,6 @@ const App = () => {
         setConfig(defaultInitialConfig);
         setStaffList(defaultInitialStaff);
         setIsPremium(false);
-        setExpiryDate(null);
         setShowAuthModal(true); 
       }
       setLoading(false);
@@ -143,7 +135,6 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // 3. User Data Listener (هنا بنشوف التاريخ ونحدد الاشتراك)
   useEffect(() => {
     if (!userId) return;
     const docRef = doc(db, "rosters", userId);
@@ -154,29 +145,17 @@ const App = () => {
         setStaffList(data.staffList || defaultInitialStaff);
         setRoster(data.roster || []);
         
-        // --- منطق الاشتراك الجديد (بالتاريخ) ---
         if (data.subscriptionEndDate) {
             const now = new Date();
-            const expiry = new Date(data.subscriptionEndDate); // التاريخ المسجل
-            
+            const expiry = new Date(data.subscriptionEndDate);
             if (expiry > now) {
                 setIsPremium(true);
                 setExpiryDate(data.subscriptionEndDate);
-            } else {
-                setIsPremium(false); // الاشتراك انتهى
-            }
-        } else {
-            // للتوافق مع القديم (لو لسه isPremium موجودة)
-            setIsPremium(data.isPremium === true);
-        }
+            } else { setIsPremium(false); }
+        } else { setIsPremium(data.isPremium === true); }
 
       } else {
-        await setDoc(docRef, { 
-            config: defaultInitialConfig, 
-            staffList: defaultInitialStaff, 
-            roster: [],
-            isPremium: false 
-        });
+        await setDoc(docRef, { config: defaultInitialConfig, staffList: defaultInitialStaff, roster: [], isPremium: false });
         setConfig(defaultInitialConfig); setStaffList(defaultInitialStaff);
         setIsPremium(false);
       }
@@ -194,13 +173,9 @@ const App = () => {
 
   const updateAdminSettings = async () => {
       if (!isAdmin) return;
-      if(window.confirm("هل تريد حفظ التعديلات العامة لجميع المستخدمين؟")) {
-        try {
-            await setDoc(doc(db, "settings", "payment"), paymentInfo);
-            alert("تم تحديث بيانات الدفع للجميع بنجاح!");
-        } catch(e) {
-            alert("حدث خطأ: " + e.message);
-        }
+      if(window.confirm("هل تريد حفظ التعديلات العامة؟")) {
+        try { await setDoc(doc(db, "settings", "payment"), paymentInfo); alert("تم الحفظ!"); } 
+        catch(e) { alert("حدث خطأ: " + e.message); }
       }
   };
 
@@ -208,14 +183,21 @@ const App = () => {
   const setStaffListAndSync = (newStaffList) => { setStaffList(newStaffList); updateFirestore(config, newStaffList, roster); };
   const setRosterAndSync = (newRoster) => { setRoster(newRoster); updateFirestore(config, staffList, newRoster); };
 
-  // --- ACTIONS ---
-  const addStaff = () => {
-    if (!isPremium && staffList.length >= 5) {
-        alert("عفواً، النسخة المجانية تدعم 5 ممرضين فقط.\nيرجى الاشتراك لإضافة عدد غير محدود.");
-        setShowPaymentModal(true);
-        return; 
+  // Handle Logo Upload (Convert to Base64)
+  const handleLogoUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        if (file.size > 500000) { alert("حجم الصورة كبير جداً! يرجى اختيار صورة أصغر من 500KB"); return; }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setConfigAndSync({...config, hospitalLogo: reader.result});
+        };
+        reader.readAsDataURL(file);
     }
+  };
 
+  const addStaff = () => {
+    if (!isPremium && staffList.length >= 5) { alert("عفواً، النسخة المجانية تدعم 5 ممرضين فقط."); setShowPaymentModal(true); return; }
     const newId = staffList.length > 0 ? Math.max(...staffList.map(s => s.id)) + 1 : 1;
     const defaultTarget = config.shiftSystem === '12h' ? 15 : config.shiftSystem === '24h' ? 10 : 22;
     setStaffListAndSync([...staffList, { id: newId, name: 'ممرض جديد', role: 'Staff', grade: 'C', preference: 'cycle', maxConsecutive: 3, targetShifts: defaultTarget, vacationDays: [] }]);
@@ -246,7 +228,6 @@ const App = () => {
       shiftTypes.forEach(shift => {
         let assignedShiftStaff = []; 
         let needCharge = 1; let needMed = config.requireMedicationNurse ? 1 : 0; let needStaff = config.minStaffOnlyCount; 
-
         const isAvailable = (staff) => {
           const state = staffState[staff.id];
           if (staff.vacationDays.includes(dayIndex)) return false;
@@ -256,7 +237,6 @@ const App = () => {
           if (state.totalShifts >= staff.targetShifts + 2) return false;
           return true;
         };
-
         let candidates = staffList.filter(s => isAvailable(s));
         const scoreStaff = (staff) => { 
           let score = (staff.targetShifts - (staffState[staff.id].totalShifts || 0)) * 10;
@@ -265,22 +245,18 @@ const App = () => {
           return score;
         };
         candidates.sort((a, b) => scoreStaff(b) - scoreStaff(a));
-
         let chargeNurse = candidates.find(s => s.role === 'Charge');
         if (!chargeNurse && candidates.length > 0) { chargeNurse = candidates[0]; generationLogs.push(`${dateInfo.str} ${shift.label}: ${chargeNurse.name} Acting Charge.`); }
         if (chargeNurse) assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' });
-
         if (needMed > 0) {
           const medNurse = candidates.find(s => s.role === 'Medication' && !assignedShiftStaff.some(a => a.id === s.id));
           if (medNurse) assignedShiftStaff.push({ ...medNurse, assignedRole: 'Medication' });
         }
-
         while (needStaff > 0) {
           const nextStaff = candidates.find(s => !assignedShiftStaff.some(a => a.id === s.id));
           if (nextStaff) assignedShiftStaff.push({ ...nextStaff, assignedRole: 'Staff' }); else break;
           needStaff--;
         }
-
         assignedShiftStaff.forEach(s => { staffState[s.id].lastShift = shift.code; staffState[s.id].consecutiveDays += 1; staffState[s.id].totalShifts += 1; });
         const workedIds = assignedShiftStaff.map(s => s.id);
         staffList.forEach(s => { if (!workedIds.includes(s.id)) { staffState[s.id].consecutiveDays = 0; staffState[s.id].lastShift = null; } });
@@ -291,9 +267,7 @@ const App = () => {
     setRosterAndSync(newRoster); setLogs(generationLogs); setStaffStats(staffState); setActiveTab('roster');
   };
 
-  const handlePremiumFeature = (action) => {
-    if (isPremium) action(); else setShowPaymentModal(true);
-  };
+  const handlePremiumFeature = (action) => { if (isPremium) action(); else setShowPaymentModal(true); };
 
   const exportRosterToCSV = () => {
     if (roster.length === 0) { alert("الجدول فارغ!"); return; }
@@ -332,19 +306,13 @@ const App = () => {
   };
 
   // --- RENDERERS ---
-
   const renderLoading = () => (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
       <div className="text-center py-10 animate-pulse">
         <div className="border-t-4 border-indigo-500 border-solid rounded-full w-12 h-12 mx-auto mb-4 animate-spin"></div>
         <p className="text-indigo-600 font-bold">جاري الاتصال بالسحابة...</p>
       </div>
-      <button 
-        onClick={() => { signOut(auth); window.location.reload(); }} 
-        className="mt-4 text-xs text-slate-400 underline hover:text-red-500"
-      >
-        هل استغرق الأمر وقتاً طويلاً؟ اضغط هنا لإعادة التعيين
-      </button>
+      <button onClick={() => { signOut(auth); window.location.reload(); }} className="mt-4 text-xs text-slate-400 underline hover:text-red-500">هل استغرق الأمر وقتاً طويلاً؟ اضغط هنا لإعادة التعيين</button>
     </div>
   );
 
@@ -358,9 +326,7 @@ const App = () => {
                 <input name="password" type="password" placeholder="كلمة المرور" required className="w-full p-3 border rounded-lg" />
                 <button type="submit" className="w-full bg-indigo-600 text-white p-3 rounded-lg font-bold hover:bg-indigo-700">{authMode === 'login' ? 'دخول' : 'تسجيل'}</button>
             </form>
-            <button onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} className="w-full text-sm text-indigo-600 mt-4 hover:underline">
-                {authMode === 'login' ? 'ليس لديك حساب؟ إنشاء حساب جديد' : 'لديك حساب؟ تسجيل الدخول'}
-            </button>
+            <button onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} className="w-full text-sm text-indigo-600 mt-4 hover:underline">{authMode === 'login' ? 'ليس لديك حساب؟ إنشاء حساب جديد' : 'لديك حساب؟ تسجيل الدخول'}</button>
         </div>
     </div>
   );
@@ -375,49 +341,51 @@ const App = () => {
               <p className="text-indigo-100 text-sm mt-1">اشترك الآن واحصل على كامل الصلاحيات</p>
             </div>
             <div className="p-6 space-y-6">
-              <div className="text-center space-y-2">
-                 <p className="text-gray-600 font-bold">سعر الاشتراك السنوي</p>
-                 <div className="text-3xl font-black text-indigo-600">{paymentInfo.price} <span className="text-sm text-gray-400">/ سنة</span></div>
-              </div>
-              
+              <div className="text-center space-y-2"><p className="text-gray-600 font-bold">سعر الاشتراك السنوي</p><div className="text-3xl font-black text-indigo-600">{paymentInfo.price} <span className="text-sm text-gray-400">/ سنة</span></div></div>
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                 <div className="flex items-center justify-between p-2 border-b border-slate-200">
-                    <span className="font-bold text-slate-700 flex items-center gap-2"><Activity className="w-4 h-4 text-indigo-500"/> InstaPay</span>
-                    <span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.instapay}</span>
-                 </div>
-                 <div className="flex items-center justify-between p-2">
-                    <span className="font-bold text-slate-700 flex items-center gap-2"><Phone className="w-4 h-4 text-green-600"/> محفظة</span>
-                    <span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.wallet}</span>
-                 </div>
+                 <div className="flex items-center justify-between p-2 border-b border-slate-200"><span className="font-bold text-slate-700 flex items-center gap-2"><Activity className="w-4 h-4 text-indigo-500"/> InstaPay</span><span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.instapay}</span></div>
+                 <div className="flex items-center justify-between p-2"><span className="font-bold text-slate-700 flex items-center gap-2"><Phone className="w-4 h-4 text-green-600"/> محفظة</span><span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.wallet}</span></div>
               </div>
-
-              <div className="text-center space-y-3">
-                <p className="text-xs text-slate-500">بعد التحويل، اضغط بالأسفل لإرسال صورة التحويل واتساب</p>
-                <a href={`https://wa.me/${paymentInfo.whatsapp}?text=أريد الاشتراك في تطبيق الروستر. قمت بتحويل المبلغ.`} target="_blank" className="w-full block bg-green-500 text-white p-3 rounded-xl font-bold hover:bg-green-600 shadow-lg shadow-green-200 transition-transform hover:-translate-y-1">
-                   <div className="flex items-center justify-center gap-2"><MessageCircle /> تفعيل الاشتراك عبر واتساب</div>
-                </a>
-              </div>
+              <div className="text-center space-y-3"><p className="text-xs text-slate-500">بعد التحويل، اضغط بالأسفل لإرسال صورة التحويل واتساب</p><a href={`https://wa.me/${paymentInfo.whatsapp}?text=أريد الاشتراك في تطبيق الروستر. قمت بتحويل المبلغ.`} target="_blank" className="w-full block bg-green-500 text-white p-3 rounded-xl font-bold hover:bg-green-600 shadow-lg shadow-green-200 transition-transform hover:-translate-y-1"><div className="flex items-center justify-center gap-2"><MessageCircle /> تفعيل الاشتراك عبر واتساب</div></a></div>
             </div>
         </div>
     </div>
   );
 
-  if (loading || config === null || staffList === null) {
-      return renderLoading();
-  }
+  if (loading || config === null || staffList === null) { return renderLoading(); }
   
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-700" dir="rtl">
       {showAuthModal && renderAuthModal()}
       {showPaymentModal && renderPaymentModal()}
       
+      {/* --- PRINT HEADER (Visible ONLY when printing) --- */}
+      <div className="hidden print:block p-8 border-b-2 border-slate-800 mb-6">
+         <div className="flex justify-between items-center">
+            <div className="flex items-center gap-4">
+               {config.hospitalLogo ? (
+                  <img src={config.hospitalLogo} className="h-24 w-auto object-contain" alt="Logo"/>
+               ) : (
+                  <Activity className="w-16 h-16 text-slate-800" />
+               )}
+               <div>
+                  <h1 className="text-4xl font-black text-slate-900">{config.hospitalName || "ROSTER MAKER"}</h1>
+                  <p className="text-xl text-slate-600 mt-1">جدول نوبتجيات التمريض - شهر {months[config.month]} {config.year}</p>
+               </div>
+            </div>
+            <div className="text-left text-sm text-slate-500">
+               <p>تم الإنشاء بواسطة Roster Maker</p>
+               <p>{new Date().toLocaleDateString()}</p>
+            </div>
+         </div>
+      </div>
+
+      {/* --- APP HEADER (Hidden when printing) --- */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm backdrop-blur-md bg-opacity-95 print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-20 items-center">
             <div className="flex items-center gap-4">
-              <div className="bg-gradient-to-tr from-indigo-600 to-purple-600 text-white p-2.5 rounded-xl shadow-lg">
-                <Activity className="w-7 h-7" />
-              </div>
+              <div className="bg-gradient-to-tr from-indigo-600 to-purple-600 text-white p-2.5 rounded-xl shadow-lg"><Activity className="w-7 h-7" /></div>
               <div>
                 <h1 className="text-2xl font-black text-slate-800 tracking-tight">ROSTER <span className="text-indigo-600">MAKER</span></h1>
                 <div className="flex items-center gap-2">
@@ -459,75 +427,35 @@ const App = () => {
 
         {activeTab === 'settings' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 space-y-8">
-             {/* Admin Control Panel - Only Visible to Admin */}
              {isAdmin && (
                  <div className="bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 overflow-hidden">
-                     <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2">
-                        <ShieldCheck className="text-emerald-400"/>
-                        <h3 className="font-bold text-lg">لوحة تحكم الأدمن (تعديل بيانات الدفع)</h3>
-                     </div>
+                     <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2"><ShieldCheck className="text-emerald-400"/><h3 className="font-bold text-lg">لوحة تحكم الأدمن (تعديل بيانات الدفع)</h3></div>
                      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">السعر</label>
-                            <input type="text" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">InstaPay Username</label>
-                            <input type="text" value={paymentInfo.instapay} onChange={(e) => setPaymentInfo({...paymentInfo, instapay: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">رقم المحفظة</label>
-                            <input type="text" value={paymentInfo.wallet} onChange={(e) => setPaymentInfo({...paymentInfo, wallet: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">رقم واتساب</label>
-                            <input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" />
-                        </div>
-                        <div className="md:col-span-2">
-                            <button onClick={updateAdminSettings} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-all">
-                                <Save className="w-5 h-5"/> حفظ التعديلات العامة
-                            </button>
-                        </div>
+                        <div><label className="block text-sm font-medium text-slate-400 mb-1">السعر</label><input type="text" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" /></div>
+                        <div><label className="block text-sm font-medium text-slate-400 mb-1">InstaPay Username</label><input type="text" value={paymentInfo.instapay} onChange={(e) => setPaymentInfo({...paymentInfo, instapay: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" /></div>
+                        <div><label className="block text-sm font-medium text-slate-400 mb-1">رقم المحفظة</label><input type="text" value={paymentInfo.wallet} onChange={(e) => setPaymentInfo({...paymentInfo, wallet: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" /></div>
+                        <div><label className="block text-sm font-medium text-slate-400 mb-1">رقم واتساب</label><input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-3 bg-slate-700 border-slate-600 rounded-lg text-white" /></div>
+                        <div className="md:col-span-2"><button onClick={updateAdminSettings} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-all"><Save className="w-5 h-5"/> حفظ التعديلات العامة</button></div>
                      </div>
                  </div>
              )}
 
-             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-4">
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="md:col-span-2 space-y-6">
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6 space-y-4">
                         <h4 className="text-sm font-bold text-slate-400 uppercase">نظام العمل</h4>
                         <div className="bg-slate-50 p-6 rounded-lg border border-slate-100 space-y-4">
                             <div className="grid grid-cols-2 gap-3">
-                                <div className="col-span-2">
-                                    <label className="block text-sm font-medium text-slate-700 mb-2">بداية الروستر</label>
-                                    <div className="flex gap-2">
-                                    <input type="number" min="1" max="31" value={config.startDay} onChange={(e) => setConfigAndSync({...config, startDay: parseInt(e.target.value)})} className="w-20 p-2 border rounded font-bold text-center"/>
-                                    <select value={config.month} onChange={(e) => setConfigAndSync({...config, month: parseInt(e.target.value)})} className="flex-1 p-2 border rounded font-bold">{months.map((m, idx) => <option key={idx} value={idx}>{m}</option>)}</select>
-                                    <input type="number" value={config.year} onChange={(e) => setConfigAndSync({...config, year: parseInt(e.target.value)})} className="w-24 p-2 border rounded font-bold text-center"/>
-                                    </div>
-                                </div>
-                                <div className="col-span-2">
-                                    <label className="block text-sm font-medium text-slate-700 mb-2">المدة (يوم)</label>
-                                    <input type="number" value={config.durationDays} onChange={(e) => setConfigAndSync({...config, durationDays: parseInt(e.target.value)})} className="w-full p-2 border rounded font-bold"/>
-                                </div>
+                                <div className="col-span-2"><label className="block text-sm font-medium text-slate-700 mb-2">بداية الروستر</label><div className="flex gap-2"><input type="number" min="1" max="31" value={config.startDay} onChange={(e) => setConfigAndSync({...config, startDay: parseInt(e.target.value)})} className="w-20 p-2 border rounded font-bold text-center"/><select value={config.month} onChange={(e) => setConfigAndSync({...config, month: parseInt(e.target.value)})} className="flex-1 p-2 border rounded font-bold">{months.map((m, idx) => <option key={idx} value={idx}>{m}</option>)}</select><input type="number" value={config.year} onChange={(e) => setConfigAndSync({...config, year: parseInt(e.target.value)})} className="w-24 p-2 border rounded font-bold text-center"/></div></div>
+                                <div className="col-span-2"><label className="block text-sm font-medium text-slate-700 mb-2">المدة (يوم)</label><input type="number" value={config.durationDays} onChange={(e) => setConfigAndSync({...config, durationDays: parseInt(e.target.value)})} className="w-full p-2 border rounded font-bold"/></div>
                             </div>
                             <hr />
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">النظام</label>
-                                <select value={config.shiftSystem} onChange={(e) => setConfigAndSync({...config, shiftSystem: e.target.value})} className="w-full p-3 border rounded-lg">
-                                    <option value="12h">12 ساعة (Day / Night)</option>
-                                    <option value="8h">8 ساعات (3 Shifts)</option>
-                                    <option value="24h">24 ساعة</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">الحد الأدنى (Staff)</label>
-                                <input type="number" value={config.minStaffOnlyCount} onChange={(e) => setConfigAndSync({...config, minStaffOnlyCount: parseInt(e.target.value)})} className="w-24 p-3 border rounded-lg font-bold text-center"/>
-                            </div>
+                            <div><label className="block text-sm font-medium text-slate-700 mb-2">النظام</label><select value={config.shiftSystem} onChange={(e) => setConfigAndSync({...config, shiftSystem: e.target.value})} className="w-full p-3 border rounded-lg"><option value="12h">12 ساعة (Day / Night)</option><option value="8h">8 ساعات (3 Shifts)</option><option value="24h">24 ساعة</option></select></div>
+                            <div><label className="block text-sm font-medium text-slate-700 mb-2">الحد الأدنى (Staff)</label><input type="number" value={config.minStaffOnlyCount} onChange={(e) => setConfigAndSync({...config, minStaffOnlyCount: parseInt(e.target.value)})} className="w-24 p-3 border rounded-lg font-bold text-center"/></div>
                         </div>
                     </div>
-                    <div className="space-y-4">
-                        <h4 className="text-sm font-bold text-slate-400 uppercase">السياسات</h4>
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6">
+                        <h4 className="text-sm font-bold text-slate-400 uppercase mb-4">السياسات</h4>
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 space-y-3">
                             <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><span className="text-sm font-medium">Day بعد Night</span><input type="checkbox" checked={config.allowDayAfterNight} onChange={(e) => setConfigAndSync({...config, allowDayAfterNight: e.target.checked})} className="w-5 h-5"/></label>
                             <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><span className="text-sm font-medium">Medication Nurse</span><input type="checkbox" checked={config.requireMedicationNurse} onChange={(e) => setConfigAndSync({...config, requireMedicationNurse: e.target.checked})} className="w-5 h-5"/></label>
@@ -535,10 +463,38 @@ const App = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* --- قسم الهوية (للمشتركين فقط) --- */}
+                <div>
+                    <div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden ${!isPremium ? 'opacity-70 pointer-events-none relative' : ''}`}>
+                        {!isPremium && <div className="absolute inset-0 flex items-center justify-center bg-slate-100/50 z-10"><span className="bg-slate-800 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1"><Lock className="w-3 h-3"/> للمشتركين فقط</span></div>}
+                        <div className="p-6 space-y-4">
+                            <h4 className="text-sm font-bold text-slate-400 uppercase flex items-center gap-2"><ImageIcon className="w-4 h-4"/> هوية المستشفى</h4>
+                            <p className="text-xs text-slate-500">أضف شعار واسم المستشفى ليظهر في الطباعة.</p>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">اسم المستشفى / القسم</label>
+                                <input type="text" placeholder="مثال: مستشفى السلام - العناية" value={config.hospitalName || ""} onChange={(e) => setConfigAndSync({...config, hospitalName: e.target.value})} className="w-full p-3 border rounded-lg"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">الشعار (Logo)</label>
+                                <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:bg-slate-50 transition-colors cursor-pointer relative">
+                                    <input type="file" accept="image/*" onChange={handleLogoUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                    {config.hospitalLogo ? (
+                                        <img src={config.hospitalLogo} className="h-20 mx-auto object-contain mb-2" alt="Logo Preview"/>
+                                    ) : (
+                                        <Upload className="w-8 h-8 mx-auto text-slate-400 mb-2"/>
+                                    )}
+                                    <span className="text-xs text-indigo-600 font-bold">اضغط لرفع صورة</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
              </div>
           </div>
         )}
 
+        {/* باقي التابات (الفريق، الجدول، تواصل) كما هي */}
         {activeTab === 'staff' && (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
              <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border">
