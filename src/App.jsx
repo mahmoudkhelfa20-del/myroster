@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent, RefreshCw
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent, RefreshCw, Star
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -63,7 +63,7 @@ const App = () => {
     hospitalName: "", hospitalLogo: null
   };
 
-  // --- القائمة الكاملة المستخرجة من الصور ---
+  // --- القائمة الكاملة (تم إضافة خاصية isCustomSenior) ---
   const defaultInitialStaff = [
     // Charge Nurses
     { id: 1, staffId: '274', name: 'Mohamed Ibrahim', gender: 'M', role: 'Charge', pos: 'CN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 15, vacationDays: [] },
@@ -138,7 +138,7 @@ const App = () => {
       str: formatDate(date), 
       dayNum: date.getDate(), 
       dayName: dayNamesEn[date.getDay()], 
-      isWeekend: date.getDay() === 5 
+      isWeekend: date.getDay() === 5 // Friday
     };
   };
 
@@ -153,8 +153,9 @@ const App = () => {
 
   const roles = ['Charge', 'Medication', 'Staff', 'Staff (Not Released)', 'Nurse Aid', 'Intern (Released)', 'Intern (Not Released)'];
   const grades = ['A', 'B', 'C', 'D'];
-  const isSenior = (grade) => ['A', 'B'].includes(grade);
-  // Staff (Not Released) excluded from count
+  
+  // --- تعديل منطق السنيور: الدرجة أو العلامة اليدوية ---
+  const isSenior = (staff) => ['A', 'B'].includes(staff.grade) || staff.isCustomSenior === true;
   const isCountable = (role) => ['Charge', 'Medication', 'Staff', 'Intern (Released)'].includes(role);
 
   useEffect(() => {
@@ -287,7 +288,6 @@ const App = () => {
       let newData = { [field]: value };
       if (field === 'role') {
           if (value === 'Charge') { newData.pos = 'CN'; } 
-          // --- هنا التعديل: الـ Staff (Not Released) بياخد SN عادي ---
           else if (value === 'Staff' || value === 'Staff (Not Released)' || value === 'Medication') { newData.pos = 'SN'; } 
           else if (value.includes('Intern')) { newData.pos = 'INT'; } 
           else if (value === 'Nurse Aid') { newData.pos = 'NA'; }
@@ -402,7 +402,8 @@ const App = () => {
         candidates.sort((a, b) => scoreStaff(b) - scoreStaff(a));
 
         let chargeNurse = candidates.find(s => s.role === 'Charge');
-        if (!chargeNurse && candidates.length > 0) chargeNurse = candidates.find(s => isCountable(s.role) && isSenior(s.grade));
+        // --- تعديل: البحث عن Charge Nurse يستخدم isSenior المحدثة (تقبل الدرجة أو العلامة اليدوية) ---
+        if (!chargeNurse && candidates.length > 0) chargeNurse = candidates.find(s => isCountable(s.role) && isSenior(s));
         if (chargeNurse) assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' });
 
         if (needAid > 0) {
@@ -419,9 +420,10 @@ const App = () => {
           }
         }
 
-        let currentSeniors = assignedShiftStaff.filter(s => isSenior(s.grade)).length;
+        let currentSeniors = assignedShiftStaff.filter(s => isSenior(s)).length;
         while (currentSeniors < needSeniors) {
-            const seniorCandidate = candidates.find(s => !assignedShiftStaff.some(a => a.id === s.id) && isCountable(s.role) && isSenior(s.grade));
+            // --- تعديل: البحث عن Senior يستخدم isSenior المحدثة ---
+            const seniorCandidate = candidates.find(s => !assignedShiftStaff.some(a => a.id === s.id) && isCountable(s.role) && isSenior(s));
             if (seniorCandidate) { assignedShiftStaff.push({ ...seniorCandidate, assignedRole: 'Staff (Senior)' }); currentSeniors++; } else { break; }
         }
 
@@ -431,7 +433,6 @@ const App = () => {
           if (nextStaff) { assignedShiftStaff.push({ ...nextStaff, assignedRole: 'Staff' }); currentCountable++; } else { break; }
         }
 
-        // --- Trainees (Interns & Staff Not Released) ---
         const trainees = candidates.filter(s => 
             (s.role === 'Intern (Not Released)' || s.role === 'Staff (Not Released)') && 
             !assignedShiftStaff.some(a => a.id === s.id) && 
@@ -769,9 +770,16 @@ const App = () => {
                              <div><label className="text-[10px] font-bold text-slate-500 block">POS</label><input type="text" value={staff.pos || 'SN'} onChange={(e) => updateStaff(staff.id, 'pos', e.target.value)} className="w-full border rounded p-1 text-xs text-center bg-slate-50" readOnly/></div>
                          </div>
 
-                         <div className="bg-yellow-50 p-1 rounded border border-yellow-200">
-                             <label className="text-xs font-bold text-slate-700 block mb-1 text-center">المطلوب (Target)</label>
-                             <input type="number" value={staff.targetShifts} onChange={(e) => updateStaff(staff.id, 'targetShifts', parseInt(e.target.value))} className="w-full border rounded p-1 text-sm font-bold text-center bg-white"/>
+                         {/* زر الـ Senior اليدوي الجديد */}
+                         <div className="flex items-center gap-2 bg-purple-50 p-2 rounded border border-purple-200">
+                             <label className="flex flex-col items-center cursor-pointer">
+                                <span className="text-[8px] font-bold text-purple-900 mb-1">Senior?</span>
+                                <input type="checkbox" checked={staff.isCustomSenior || false} onChange={(e) => updateStaff(staff.id, 'isCustomSenior', e.target.checked)} className="w-4 h-4 accent-purple-600"/>
+                             </label>
+                             <div className="flex-1">
+                                <label className="text-xs font-bold text-slate-700 block mb-1 text-center">Target</label>
+                                <input type="number" value={staff.targetShifts} onChange={(e) => updateStaff(staff.id, 'targetShifts', parseInt(e.target.value))} className="w-full border rounded p-1 text-sm font-bold text-center bg-white"/>
+                             </div>
                          </div>
                          
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدرجة (Grade)</label><select value={staff.grade} onChange={(e) => updateStaff(staff.id, 'grade', e.target.value)} className="w-full border rounded p-1 text-sm font-bold bg-slate-50">{grades.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
@@ -852,9 +860,9 @@ const App = () => {
                                 <th className="border border-black w-6">LEVEL</th>
                                 <th className="border border-black w-6">G</th>
                                 {roster.length > 0 && roster.map((r, i) => (
-                                    <th key={i} style={{backgroundColor: r.dateInfo.isWeekend ? '#fed7aa' : '#e0f2fe'}} className="border border-black w-6">
-                                        <div className="text-[8px] font-bold">{r.dateInfo.dayName.substring(0,3)}</div>
-                                        <div>{r.dateInfo.dayNum}</div>
+                                    <th key={i} style={{backgroundColor: r.dateInfo.isWeekend ? '#fed7aa' : '#e0f2fe'}} className="border border-black w-6 text-black">
+                                        <div className="text-[10px] font-bold text-black">{r.dateInfo.dayName.substring(0,3)}</div>
+                                        <div className="text-black">{r.dateInfo.dayNum}</div>
                                     </th>
                                 ))}
                                 <th className="border border-black w-6 bg-gray-200">D</th>
@@ -868,7 +876,10 @@ const App = () => {
                                 return (
                                 <tr key={staff.id} className="hover:bg-gray-50">
                                     <td className="border border-black">{index + 1}</td>
-                                    <td className="border border-black text-left px-1 font-bold whitespace-nowrap">{staff.name}</td>
+                                    <td className="border border-black text-left px-1 font-bold whitespace-nowrap flex items-center">
+                                        {staff.isCustomSenior && <Star className="w-3 h-3 text-yellow-500 mr-1 fill-current"/>}
+                                        {staff.name}
+                                    </td>
                                     <td className="border border-black">{staff.pos}</td>
                                     <td className="border border-black">{staff.staffId}</td>
                                     <td className="border border-black">{staff.grade}</td>
