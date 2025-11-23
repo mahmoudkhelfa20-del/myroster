@@ -9,6 +9,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 
+// --- Firebase Configuration ---
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDYfEuKC2x15joIBS082can9w0jdy_6_-0", 
   authDomain: "roster-maker-app.firebaseapp.com",
@@ -62,9 +63,55 @@ const App = () => {
     hospitalName: "", hospitalLogo: null
   };
 
+  // --- القائمة الكاملة المستخرجة من الصور ---
   const defaultInitialStaff = [
-    { id: 1, staffId: '101', name: 'أحمد محمد', gender: 'M', role: 'Charge', pos: 'CN', grade: 'A', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] },
-    { id: 2, staffId: '102', name: 'سارة علي', gender: 'F', role: 'Staff', pos: 'SN', grade: 'B', preference: 'scattered', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] }, 
+    // Charge Nurses
+    { id: 1, staffId: '274', name: 'Mohamed Ibrahim', gender: 'M', role: 'Charge', pos: 'CN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 15, vacationDays: [] },
+    { id: 2, staffId: '752', name: 'Fawzya Mahmoud', gender: 'F', role: 'Charge', pos: 'CN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 15, vacationDays: [] },
+    { id: 3, staffId: '2092', name: 'Mahmoud Khelfa', gender: 'M', role: 'Charge', pos: 'CN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
+    { id: 4, staffId: '5283', name: 'Shehata Mohamed', gender: 'M', role: 'Charge', pos: 'SN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
+    // Staff Nurses
+    { id: 5, staffId: '5420', name: 'Mohamed Elsayed', gender: 'M', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 6, staffId: '5847', name: 'Doaa Sallam', gender: 'F', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 14, vacationDays: [] },
+    { id: 7, staffId: '6260', name: 'Yassa Nagy', gender: 'M', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 13, vacationDays: [] },
+    { id: 8, staffId: '6118', name: 'Asmaa Ibrahim', gender: 'F', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 16, vacationDays: [] },
+    { id: 9, staffId: '6117', name: 'Rahma Mohamed', gender: 'F', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 10, staffId: '6159', name: 'Ahmed Alaa Shebl', gender: 'M', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 15, vacationDays: [] },
+    { id: 11, staffId: '6156', name: 'Samar Abdel Salam', gender: 'F', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 12, staffId: '6167', name: 'Bony Wessam', gender: 'F', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 13, staffId: '6189', name: 'Ahmed El Sayed', gender: 'M', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 15, vacationDays: [] },
+    { id: 14, staffId: '6153', name: 'Abdelrahman Muslim', gender: 'M', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 15, staffId: '6141', name: 'Omnia A.Latif', gender: 'F', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 13, vacationDays: [] },
+    { id: 16, staffId: '6175', name: 'Mostafa Abu Zaid', gender: 'M', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 17, staffId: '6549', name: 'Hager Mohamed', gender: 'F', role: 'Staff', pos: 'SN', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
+    { id: 20, staffId: '6501', name: 'Abdelrahman Mohamed', gender: 'M', role: 'Staff', pos: 'SN', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
+    // Interns (Released)
+    { id: 18, staffId: '6329', name: 'Amany Habib', gender: 'F', role: 'Intern (Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 19, staffId: '6331', name: 'Rasha Mosaad', gender: 'F', role: 'Intern (Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 21, staffId: '6532', name: 'Norhan Mohamed', gender: 'F', role: 'Intern (Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    // Nurse Aids (NA)
+    { id: 27, staffId: '464', name: 'Abdelrahman Wagdy', gender: 'M', role: 'Nurse Aid', pos: 'NA', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
+    { id: 28, staffId: '755', name: 'Abdelrahman Khairy', gender: 'M', role: 'Nurse Aid', pos: 'NA', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
+    { id: 29, staffId: '5675', name: 'Mareim Khalid', gender: 'F', role: 'Nurse Aid', pos: 'NA', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
+    { id: 30, staffId: '5850', name: 'Ahmed Abdelaziz', gender: 'M', role: 'Nurse Aid', pos: 'NA', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
+    // New Hiring (Not Released)
+    { id: 31, staffId: '6429', name: 'Esraa Ibrahim', gender: 'F', role: 'Staff (Not Released)', pos: 'SN', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
+    { id: 32, staffId: '6390', name: 'Amira Mosad', gender: 'F', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 33, staffId: '6391', name: 'Hager Mamdouh', gender: 'F', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 34, staffId: '6392', name: 'Eman Mahmoud', gender: 'F', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 35, staffId: '6408', name: 'Rawan Mostafa', gender: 'F', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 36, staffId: '6426', name: 'Nada Abdelhakim', gender: 'F', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 37, staffId: '6393', name: 'Shimaa Mosad', gender: 'F', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 38, staffId: '6519', name: 'Mohamed Abdelhamid + A Alaa', gender: 'M', role: 'Staff (Not Released)', pos: 'SN', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
+    { id: 39, staffId: '6520', name: 'Reda El Mohamdy + A Alaa', gender: 'M', role: 'Staff (Not Released)', pos: 'SN', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
+    { id: 40, staffId: '6460', name: 'Tasbeeh Hosny + Omnia', gender: 'F', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 41, staffId: '6316', name: 'Abdelrahman Shafek + Omnia', gender: 'M', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    // Medication Nurses
+    { id: 22, staffId: '2097', name: 'Esraa Omran', gender: 'F', role: 'Medication', pos: 'SN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 23, staffId: '6073', name: 'Mahmoud A Elzaher', gender: 'M', role: 'Medication', pos: 'SN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 14, vacationDays: [] },
+    { id: 24, staffId: '5635', name: 'Alaa Ayman', gender: 'F', role: 'Medication', pos: 'SN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 16, vacationDays: [] },
+    { id: 25, staffId: '5536', name: 'Mary Zaref', gender: 'F', role: 'Medication', pos: 'SN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
+    { id: 26, staffId: '6214', name: 'Mahmoud El Mahdy', gender: 'M', role: 'Medication', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 11, vacationDays: [] },
   ];
 
   const [config, setConfig] = useState(defaultInitialConfig); 
@@ -91,7 +138,7 @@ const App = () => {
       str: formatDate(date), 
       dayNum: date.getDate(), 
       dayName: dayNamesEn[date.getDay()], 
-      isWeekend: date.getDay() === 5 // Friday
+      isWeekend: date.getDay() === 5 
     };
   };
 
@@ -104,12 +151,10 @@ const App = () => {
     }
   };
 
-  // --- تم إضافة Staff (Not Released) للقائمة ---
   const roles = ['Charge', 'Medication', 'Staff', 'Staff (Not Released)', 'Nurse Aid', 'Intern (Released)', 'Intern (Not Released)'];
   const grades = ['A', 'B', 'C', 'D'];
   const isSenior = (grade) => ['A', 'B'].includes(grade);
-  
-  // --- تم استبعاد Staff (Not Released) من الحساب ---
+  // Staff (Not Released) excluded from count
   const isCountable = (role) => ['Charge', 'Medication', 'Staff', 'Intern (Released)'].includes(role);
 
   useEffect(() => {
@@ -242,7 +287,6 @@ const App = () => {
       let newData = { [field]: value };
       if (field === 'role') {
           if (value === 'Charge') { newData.pos = 'CN'; } 
-          // --- هنا التعديل: الـ Staff (Not Released) بياخد SN عادي ---
           else if (value === 'Staff' || value === 'Staff (Not Released)' || value === 'Medication') { newData.pos = 'SN'; } 
           else if (value.includes('Intern')) { newData.pos = 'INT'; } 
           else if (value === 'Nurse Aid') { newData.pos = 'NA'; }
@@ -321,6 +365,7 @@ const App = () => {
             if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 50;
             if (staff.grade === 'A') score += 2;
             
+            // NA Priority Rule
             if (staff.role === 'Nurse Aid') {
                 const isTargetDeficient = state.totalShifts < staff.targetShifts;
                 const isDayShift = shift.code === 'D' || shift.code === 'M';
@@ -386,8 +431,7 @@ const App = () => {
           if (nextStaff) { assignedShiftStaff.push({ ...nextStaff, assignedRole: 'Staff' }); currentCountable++; } else { break; }
         }
 
-        // --- التعامل مع (Staff Not Released) مثل الـ (Interns) ---
-        // يوضعون في الجدول لإكمال شفتاتهم ولكن لا يسدون عجزاً
+        // --- Trainees (Interns & Staff Not Released) ---
         const trainees = candidates.filter(s => 
             (s.role === 'Intern (Not Released)' || s.role === 'Staff (Not Released)') && 
             !assignedShiftStaff.some(a => a.id === s.id) && 
@@ -395,7 +439,6 @@ const App = () => {
         );
         
         if (trainees.length > 0) {
-            // نضيف واحد منهم على الأقل للتدريب في الشفت
             assignedShiftStaff.push({ ...trainees[0], assignedRole: 'Training' });
         }
 
@@ -430,9 +473,7 @@ const App = () => {
           } 
       });
 
-      // --- تحديث حساب الفوتر لاستبعاد الغير محسوبين (Interns + Staff Not Released) ---
       const countStaffOnly = (arr) => arr ? arr.filter(s => isCountable(s.role) && !['Charge', 'Medication'].includes(s.assignedRole)).length : 0;
-      
       const dayStaffCount = countStaffOnly(dailyShifts['D'] || dailyShifts['M']);
       const nightStaffCount = countStaffOnly(dailyShifts['N']);
 
