@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -34,7 +34,9 @@ const App = () => {
   const [targetUserUid, setTargetUserUid] = useState(""); 
   
   const [paymentInfo, setPaymentInfo] = useState({
-    price: "1000 جنيه",
+    price: 1000, 
+    discount: 0, 
+    freeLimit: 10, 
     instapay: "mahmoudkhelfa@instapay",
     wallet: "01205677601",
     whatsapp: "201205677601"
@@ -102,18 +104,20 @@ const App = () => {
     }
   };
 
-  const roles = ['Charge', 'Medication', 'Staff', 'Nurse Aid', 'Intern (Released)', 'Intern (Not Released)'];
+  // --- تم إضافة Staff (Not Released) للقائمة ---
+  const roles = ['Charge', 'Medication', 'Staff', 'Staff (Not Released)', 'Nurse Aid', 'Intern (Released)', 'Intern (Not Released)'];
   const grades = ['A', 'B', 'C', 'D'];
   const isSenior = (grade) => ['A', 'B'].includes(grade);
+  
+  // --- تم استبعاد Staff (Not Released) من الحساب ---
   const isCountable = (role) => ['Charge', 'Medication', 'Staff', 'Intern (Released)'].includes(role);
 
-  // --- Listeners ---
   useEffect(() => {
     const fetchPaymentSettings = async () => {
         try {
             const docRef = doc(db, "settings", "payment");
             const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) { setPaymentInfo(docSnap.data()); }
+            if (docSnap.exists()) { setPaymentInfo({ ...paymentInfo, ...docSnap.data() }); }
         } catch (e) { console.log("Error fetching settings:", e); }
     };
     fetchPaymentSettings();
@@ -218,7 +222,12 @@ const App = () => {
   };
 
   const addStaff = () => {
-    if (!isPremium && staffList.length >= 5) { alert("عفواً، النسخة المجانية تدعم 5 ممرضين فقط."); setShowPaymentModal(true); return; }
+    const limit = paymentInfo.freeLimit || 10; 
+    if (!isPremium && staffList.length >= limit) { 
+        alert(`عفواً، النسخة المجانية تدعم ${limit} ممرضين فقط.`); 
+        setShowPaymentModal(true); 
+        return; 
+    }
     const newId = staffList.length > 0 ? Math.max(...staffList.map(s => s.id)) + 1 : 1;
     const defaultPos = 'SN'; 
     setStaffListAndSync([...staffList, { 
@@ -233,7 +242,8 @@ const App = () => {
       let newData = { [field]: value };
       if (field === 'role') {
           if (value === 'Charge') { newData.pos = 'CN'; } 
-          else if (value === 'Staff' || value === 'Medication') { newData.pos = 'SN'; } 
+          // --- هنا التعديل: الـ Staff (Not Released) بياخد SN عادي ---
+          else if (value === 'Staff' || value === 'Staff (Not Released)' || value === 'Medication') { newData.pos = 'SN'; } 
           else if (value.includes('Intern')) { newData.pos = 'INT'; } 
           else if (value === 'Nurse Aid') { newData.pos = 'NA'; }
       }
@@ -254,14 +264,12 @@ const App = () => {
       } 
   };
 
-  // --- CORE ALGORITHM: FAIRNESS + STRICT RULES ---
+  // --- CORE ALGORITHM ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
     const newRoster = []; 
     let currentShortages = []; 
-    
-    // تهيئة الحالة والعدادات (Balance Counters)
     let staffState = {}; 
     staffList.forEach(s => {
         staffState[s.id] = { 
@@ -269,8 +277,8 @@ const App = () => {
             consecutiveWorkDays: 0, 
             consecutiveOffDays: 0, 
             totalShifts: 0,
-            dayShiftsCount: 0, // عداد شفتات الصباح
-            nightShiftsCount: 0 // عداد شفتات السهر
+            dayShiftsCount: 0, 
+            nightShiftsCount: 0 
         };
     });
 
@@ -280,63 +288,48 @@ const App = () => {
       
       shiftTypes.forEach(shift => {
         let assignedShiftStaff = []; 
-        // الاحتياجات الأساسية لكل شفت
         let needCharge = 1; 
         let needMed = config.requireMedicationNurse ? 1 : 0; 
         let needStaff = config.minStaffOnlyCount; 
         let needAid = staffList.some(s => s.role === 'Nurse Aid') ? 1 : 0; 
         let needSeniors = config.minSeniorCount || 1;
 
-        // 1. تحديد المتاحين
         const isAvailable = (staff) => {
           const state = staffState[staff.id];
-          if (staff.vacationDays.includes(dayIndex)) return false; // إجازة رسمية
-          if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false; // شغال شفت تاني اليوم
+          if (staff.vacationDays.includes(dayIndex)) return false; 
+          if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false; 
           
-          // منطق السايكل (لو مختاره)
           if (staff.preference === 'cycle') {
              const work = staff.cycleWorkDays || 5;
              const off = staff.cycleOffDays || 4;
              const cycleLen = work + off;
              const dayInCycle = (dayIndex + staff.id) % cycleLen; 
-             if (dayInCycle >= work) return false; // فترة راحة السايكل
+             if (dayInCycle >= work) return false; 
           }
 
           if (state.consecutiveWorkDays >= config.maxConsecutiveWork) return false;
-          // منع نزول Day بعد Night
           if (!config.allowDoubleShift && state.lastShift === 'N' && shift.code === 'D') return false;
-          if (state.totalShifts >= staff.targetShifts + 2) return false; // تجاوز التارجت بزيادة
+          if (state.totalShifts >= staff.targetShifts + 2) return false; 
           return true;
         };
 
         let candidates = staffList.filter(s => isAvailable(s));
 
-        // 2. حساب النقاط (Scoring System) للعدالة
         const scoreStaff = (staff) => { 
             const state = staffState[staff.id];
-            // الأولوية لمن لم يكمل التارجت
             let score = (staff.targetShifts - state.totalShifts) * 10;
-            
-            // Cycle: أولوية للاستمرار في العمل
             if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 50;
-            
-            // Seniority
             if (staff.grade === 'A') score += 2;
             
-            // --- Nurse Aid Special Rule (Sun/Mon Priority) ---
             if (staff.role === 'Nurse Aid') {
                 const isTargetDeficient = state.totalShifts < staff.targetShifts;
                 const isDayShift = shift.code === 'D' || shift.code === 'M';
-                const dayOfWeek = dateInfo.dateObj.getDay(); // 0=Sun, 1=Mon
-                
-                // لو الـ NA محتاج شفتات واليوم أحد أو اثنين صباحي -> أولوية قصوى
+                const dayOfWeek = dateInfo.dateObj.getDay(); 
                 if (isTargetDeficient && isDayShift && (dayOfWeek === 0 || dayOfWeek === 1)) {
                      score += 200; 
                 }
             }
             
-            // --- Fairness Logic (الميزان) ---
-            // محاولة مساوة عدد الـ Day والـ Night
             if (config.shiftSystem === '12h') {
                 const pref = staff.shiftPreference || 'auto';
                 const isDayShift = shift.code === 'D';
@@ -344,16 +337,14 @@ const App = () => {
                 if (pref === 'auto') {
                     const dCount = state.dayShiftsCount || 0;
                     const nCount = state.nightShiftsCount || 0;
-                    
                     if (isDayShift) {
-                        if (dCount < nCount) score += 40; // محتاج داي
-                        else if (dCount > nCount) score -= 20; // واخد داي كتير
-                    } else { // Night
-                        if (nCount < dCount) score += 40; // محتاج نايت
-                        else if (nCount > dCount) score -= 20; // واخد نايت كتير
+                        if (dCount < nCount) score += 40; 
+                        else if (dCount > nCount) score -= 20; 
+                    } else { 
+                        if (nCount < dCount) score += 40; 
+                        else if (nCount > dCount) score -= 20; 
                     }
                 } else {
-                    // تفضيلات صريحة
                     if (pref === 'all_day') { if (isDayShift) score += 1000; else score -= 10000; }
                     else if (pref === 'all_night') { if (!isDayShift) score += 1000; else score -= 10000; }
                     else if (pref === 'mostly_day') { if (isDayShift) score += 50; else score -= 50; }
@@ -365,31 +356,24 @@ const App = () => {
 
         candidates.sort((a, b) => scoreStaff(b) - scoreStaff(a));
 
-        // 3. توزيع الأدوار (Strict Order)
-        
-        // A. Charge Nurse (Must have 1)
         let chargeNurse = candidates.find(s => s.role === 'Charge');
         if (!chargeNurse && candidates.length > 0) chargeNurse = candidates.find(s => isCountable(s.role) && isSenior(s.grade));
         if (chargeNurse) assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' });
 
-        // B. Nurse Aid (Must have 1)
         if (needAid > 0) {
             const aid = candidates.find(s => s.role === 'Nurse Aid' && !assignedShiftStaff.some(a => a.id === s.id));
             if (aid) assignedShiftStaff.push({ ...aid, assignedRole: 'Nurse Aid' });
         }
         
-        // C. Medication Nurse (Must have 1)
         if (needMed > 0) {
           const medNurse = candidates.find(s => s.role === 'Medication' && !assignedShiftStaff.some(a => a.id === s.id));
           if (medNurse) assignedShiftStaff.push({ ...medNurse, assignedRole: 'Medication' });
           else {
-              // If no specific Med nurse, pick a qualified staff
               const altMed = candidates.find(s => isCountable(s.role) && !assignedShiftStaff.some(a => a.id === s.id));
               if (altMed) assignedShiftStaff.push({ ...altMed, assignedRole: 'Medication' });
           }
         }
 
-        // D. Seniors & Staff (Fill the rest)
         let currentSeniors = assignedShiftStaff.filter(s => isSenior(s.grade)).length;
         while (currentSeniors < needSeniors) {
             const seniorCandidate = candidates.find(s => !assignedShiftStaff.some(a => a.id === s.id) && isCountable(s.role) && isSenior(s.grade));
@@ -402,11 +386,19 @@ const App = () => {
           if (nextStaff) { assignedShiftStaff.push({ ...nextStaff, assignedRole: 'Staff' }); currentCountable++; } else { break; }
         }
 
-        // E. Interns
-        const internsNotReleased = candidates.filter(s => s.role === 'Intern (Not Released)' && !assignedShiftStaff.some(a => a.id === s.id) && staffState[s.id].totalShifts < s.targetShifts);
-        if (internsNotReleased.length > 0) assignedShiftStaff.push({ ...internsNotReleased[0], assignedRole: 'Intern (Training)' });
+        // --- التعامل مع (Staff Not Released) مثل الـ (Interns) ---
+        // يوضعون في الجدول لإكمال شفتاتهم ولكن لا يسدون عجزاً
+        const trainees = candidates.filter(s => 
+            (s.role === 'Intern (Not Released)' || s.role === 'Staff (Not Released)') && 
+            !assignedShiftStaff.some(a => a.id === s.id) && 
+            staffState[s.id].totalShifts < s.targetShifts
+        );
+        
+        if (trainees.length > 0) {
+            // نضيف واحد منهم على الأقل للتدريب في الشفت
+            assignedShiftStaff.push({ ...trainees[0], assignedRole: 'Training' });
+        }
 
-        // F. Shortage Check
         if (currentCountable < needStaff) {
             currentShortages.push({
                 day: dateInfo.str,
@@ -418,13 +410,11 @@ const App = () => {
             });
         }
 
-        // Update State Counters
         assignedShiftStaff.forEach(s => { 
             staffState[s.id].lastShift = shift.code; 
             staffState[s.id].consecutiveWorkDays += 1; 
             staffState[s.id].consecutiveOffDays = 0; 
             staffState[s.id].totalShifts += 1;
-            
             if (shift.code === 'D' || shift.code === 'M') staffState[s.id].dayShiftsCount += 1;
             if (shift.code === 'N') staffState[s.id].nightShiftsCount += 1;
         });
@@ -440,8 +430,9 @@ const App = () => {
           } 
       });
 
-      // حساب الاستاف الصافي (بدون Charge/Med) للفوتر
-      const countStaffOnly = (arr) => arr ? arr.filter(s => !['Charge', 'Medication'].includes(s.assignedRole)).length : 0;
+      // --- تحديث حساب الفوتر لاستبعاد الغير محسوبين (Interns + Staff Not Released) ---
+      const countStaffOnly = (arr) => arr ? arr.filter(s => isCountable(s.role) && !['Charge', 'Medication'].includes(s.assignedRole)).length : 0;
+      
       const dayStaffCount = countStaffOnly(dailyShifts['D'] || dailyShifts['M']);
       const nightStaffCount = countStaffOnly(dailyShifts['N']);
 
@@ -560,26 +551,39 @@ const App = () => {
     </div>
   );
 
-  const renderPaymentModal = () => (
-    <div className="fixed inset-0 bg-slate-900 bg-opacity-80 z-50 flex items-center justify-center p-4" onClick={() => setShowPaymentModal(false)}>
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="bg-gradient-to-r from-indigo-600 to-purple-700 p-6 text-white text-center relative">
-              <button onClick={() => setShowPaymentModal(false)} className="absolute top-4 left-4 text-white/80 hover:text-white"><X/></button>
-              <Lock className="w-12 h-12 mx-auto mb-2 opacity-90" />
-              <h2 className="text-xl font-bold">ميزة للمشتركين فقط</h2>
-              <p className="text-indigo-100 text-sm mt-1">اشترك الآن واحصل على كامل الصلاحيات</p>
-            </div>
-            <div className="p-6 space-y-6">
-              <div className="text-center space-y-2"><p className="text-gray-600 font-bold">سعر الاشتراك السنوي</p><div className="text-3xl font-black text-indigo-600">{paymentInfo.price} <span className="text-sm text-gray-400">/ سنة</span></div></div>
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                 <div className="flex items-center justify-between p-2 border-b border-slate-200"><span className="font-bold text-slate-700 flex items-center gap-2"><Activity className="w-4 h-4 text-indigo-500"/> InstaPay</span><span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.instapay}</span></div>
-                 <div className="flex items-center justify-between p-2"><span className="font-bold text-slate-700 flex items-center gap-2"><Phone className="w-4 h-4 text-green-600"/> محفظة</span><span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.wallet}</span></div>
-              </div>
-              <div className="text-center space-y-3"><p className="text-xs text-slate-500">بعد التحويل، انسخ "كود الحساب" من الإعدادات وارسله لنا واتساب</p><a href={`https://wa.me/${paymentInfo.whatsapp}?text=أريد تفعيل الاشتراك. هذا كود حسابي: ${userId}`} target="_blank" className="w-full block bg-green-500 text-white p-3 rounded-xl font-bold hover:bg-green-600 shadow-lg shadow-green-200 transition-transform hover:-translate-y-1"><div className="flex items-center justify-center gap-2"><MessageCircle /> إرسال الكود لتفعيل الاشتراك</div></a></div>
+  const renderPaymentModal = () => {
+      const price = parseFloat(paymentInfo.price || 1000);
+      const discount = parseFloat(paymentInfo.discount || 0);
+      const finalPrice = discount > 0 ? price * (1 - discount/100) : price;
+
+      return (
+        <div className="fixed inset-0 bg-slate-900 bg-opacity-80 z-50 flex items-center justify-center p-4" onClick={() => setShowPaymentModal(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                <div className="bg-gradient-to-r from-indigo-600 to-purple-700 p-6 text-white text-center relative">
+                <button onClick={() => setShowPaymentModal(false)} className="absolute top-4 left-4 text-white/80 hover:text-white"><X/></button>
+                <Lock className="w-12 h-12 mx-auto mb-2 opacity-90" />
+                <h2 className="text-xl font-bold">ميزة للمشتركين فقط</h2>
+                <p className="text-indigo-100 text-sm mt-1">اشترك الآن واحصل على كامل الصلاحيات</p>
+                </div>
+                <div className="p-6 space-y-6">
+                <div className="text-center space-y-2">
+                    <p className="text-gray-600 font-bold">سعر الاشتراك السنوي</p>
+                    <div className="flex flex-col items-center justify-center">
+                        {discount > 0 && <span className="text-lg text-gray-400 line-through decoration-red-500 font-bold">{price} جنيه</span>}
+                        <div className="text-3xl font-black text-indigo-600">{finalPrice} جنيه <span className="text-sm text-gray-400 font-normal">/ سنة</span></div>
+                        {discount > 0 && <span className="bg-red-100 text-red-600 px-2 py-0.5 rounded text-xs font-bold mt-1">خصم {discount}% لفترة محدودة</span>}
+                    </div>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                    <div className="flex items-center justify-between p-2 border-b border-slate-200"><span className="font-bold text-slate-700 flex items-center gap-2"><Activity className="w-4 h-4 text-indigo-500"/> InstaPay</span><span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.instapay}</span></div>
+                    <div className="flex items-center justify-between p-2"><span className="font-bold text-slate-700 flex items-center gap-2"><Phone className="w-4 h-4 text-green-600"/> محفظة</span><span className="font-mono bg-white px-2 py-1 rounded border select-all dir-ltr">{paymentInfo.wallet}</span></div>
+                </div>
+                <div className="text-center space-y-3"><p className="text-xs text-slate-500">بعد التحويل، انسخ "كود الحساب" من الإعدادات وارسله لنا واتساب</p><a href={`https://wa.me/${paymentInfo.whatsapp}?text=أريد تفعيل الاشتراك. هذا كود حسابي: ${userId}`} target="_blank" className="w-full block bg-green-500 text-white p-3 rounded-xl font-bold hover:bg-green-600 shadow-lg shadow-green-200 transition-transform hover:-translate-y-1"><div className="flex items-center justify-center gap-2"><MessageCircle /> إرسال الكود لتفعيل الاشتراك</div></a></div>
+                </div>
             </div>
         </div>
-    </div>
-  );
+      );
+  };
 
   if (loading || config === null || staffList === null) { return renderLoading(); }
   
@@ -643,7 +647,21 @@ const App = () => {
                      <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2"><ShieldCheck className="text-emerald-400"/><h3 className="font-bold text-lg">لوحة تحكم الأدمن</h3></div>
                      <div className="p-6 space-y-6">
                         <div className="bg-slate-700/50 p-4 rounded-lg border border-slate-600"><h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2"><UserCheck className="w-4 h-4"/> تفعيل اشتراك لمستخدم</h4><div className="flex gap-2"><input type="text" placeholder="UID" value={targetUserUid} onChange={(e) => setTargetUserUid(e.target.value)} className="flex-1 p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm"/><button onClick={activateUserSubscription} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-sm font-bold">تفعيل سنة</button></div></div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-xs text-slate-400 mb-1">السعر</label><input type="text" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div><div><label className="block text-xs text-slate-400 mb-1">رقم واتساب</label><input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div></div><button onClick={updateAdminSettings} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded font-bold text-sm flex items-center justify-center gap-2"><Save className="w-4 h-4"/> حفظ بيانات الدفع</button></div></div>)}
+                        <div className="border-t border-slate-600 pt-4 mt-4">
+                            <h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2"><Edit3 className="w-4 h-4"/> تعديل بيانات الدفع</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div><label className="block text-xs text-slate-400 mb-1">السعر الأصلي</label><input type="number" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: parseInt(e.target.value)})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
+                                <div><label className="block text-xs text-slate-400 mb-1">نسبة الخصم (%)</label><input type="number" min="0" max="100" value={paymentInfo.discount} onChange={(e) => setPaymentInfo({...paymentInfo, discount: parseInt(e.target.value)})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm text-center font-bold text-yellow-400" /></div>
+                                <div><label className="block text-xs text-slate-400 mb-1">الحد المجاني للممرضين</label><input type="number" value={paymentInfo.freeLimit} onChange={(e) => setPaymentInfo({...paymentInfo, freeLimit: parseInt(e.target.value)})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm text-center" /></div>
+                                <div><label className="block text-xs text-slate-400 mb-1">رقم واتساب</label><input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
+                                <div><label className="block text-xs text-slate-400 mb-1">Instapay</label><input type="text" value={paymentInfo.instapay} onChange={(e) => setPaymentInfo({...paymentInfo, instapay: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
+                                <div><label className="block text-xs text-slate-400 mb-1">محفظة</label><input type="text" value={paymentInfo.wallet} onChange={(e) => setPaymentInfo({...paymentInfo, wallet: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
+                            </div>
+                        </div>
+                        <button onClick={updateAdminSettings} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded font-bold text-sm flex items-center justify-center gap-2"><Save className="w-4 h-4"/> حفظ كل الإعدادات</button>
+                     </div>
+                 </div>
+             )}
              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="md:col-span-2 space-y-6">
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6 space-y-4">
