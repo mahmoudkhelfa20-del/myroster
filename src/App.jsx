@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, Edit3, AlertTriangle, AlertCircle
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -20,6 +20,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
+// تأكد من أن هذا الـ UID مطابق لحسابك كأدمن
 const ADMIN_UID = "lpHTOe8uAzbf8MNnX6SGw6W7B5h1"; 
 
 const App = () => {
@@ -45,7 +46,7 @@ const App = () => {
   const [authMode, setAuthMode] = useState('login');
   const [authError, setAuthError] = useState(null);
   
-  // --- State للعجز ---
+  // State للعجز
   const [shortageWarnings, setShortageWarnings] = useState([]);
 
   const defaultInitialConfig = {
@@ -62,14 +63,14 @@ const App = () => {
   };
 
   const defaultInitialStaff = [
-    { id: 1, staffId: '101', name: 'أحمد محمد', gender: 'M', role: 'Charge', pos: 'CN', grade: 'A', preference: 'cycle', shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] },
-    { id: 2, staffId: '102', name: 'سارة علي', gender: 'F', role: 'Staff', pos: 'SN', grade: 'B', preference: 'scattered', shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] }, 
+    // تم إضافة cycleWorkDays و cycleOffDays هنا
+    { id: 1, staffId: '101', name: 'أحمد محمد', gender: 'M', role: 'Charge', pos: 'CN', grade: 'A', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] },
+    { id: 2, staffId: '102', name: 'سارة علي', gender: 'F', role: 'Staff', pos: 'SN', grade: 'B', preference: 'scattered', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] }, 
   ];
 
   const [config, setConfig] = useState(defaultInitialConfig); 
   const [staffList, setStaffList] = useState(defaultInitialStaff);
   const [roster, setRoster] = useState([]);
-  const [logs, setLogs] = useState([]);
   const [staffStats, setStaffStats] = useState({});
 
   const months = [ "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر" ];
@@ -225,7 +226,7 @@ const App = () => {
     const defaultPos = 'SN'; 
     setStaffListAndSync([...staffList, { 
         id: newId, staffId: '', name: 'ممرض جديد', gender: 'F', role: 'Staff', pos: defaultPos, grade: 'C', 
-        preference: 'cycle', shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] 
+        preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] 
     }]);
   };
 
@@ -247,30 +248,24 @@ const App = () => {
     let newVacations = staff.vacationDays.includes(dayIndex) ? staff.vacationDays.filter(d => d !== dayIndex) : [...staff.vacationDays, dayIndex];
     setStaffListAndSync(staffList.map(s => s.id === staffId ? { ...s, vacationDays: newVacations } : s));
   };
+
   const resetRoster = () => { 
       if(window.confirm("هل أنت متأكد؟")) { 
           setRosterAndSync([]); 
-          setLogs([]); 
           setStaffStats({}); 
-          setShortageWarnings([]); // مسح التنبيهات
+          setShortageWarnings([]);
       } 
   };
 
+  // --- 1. منطق التوزيع المحسن (مع دعم السايكل القوية) ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
     const newRoster = []; 
-    
-    let currentShortages = []; // قائمة لتجميع العجز
-
+    let currentShortages = []; 
     let staffState = {}; 
     staffList.forEach(s => {
-        staffState[s.id] = { 
-            lastShift: null, 
-            consecutiveWorkDays: 0, 
-            consecutiveOffDays: 0,
-            totalShifts: 0 
-        };
+        staffState[s.id] = { lastShift: null, consecutiveWorkDays: 0, consecutiveOffDays: 0, totalShifts: 0 };
     });
 
     for (let dayIndex = 1; dayIndex <= config.durationDays; dayIndex++) {
@@ -286,6 +281,18 @@ const App = () => {
           const state = staffState[staff.id];
           if (staff.vacationDays.includes(dayIndex)) return false;
           if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false;
+          
+          // === إضافة منطق السايكل (Strict Modulo) ===
+          if (staff.preference === 'cycle') {
+             const work = staff.cycleWorkDays || 5;
+             const off = staff.cycleOffDays || 4;
+             const cycleLen = work + off;
+             // معادلة رياضية لتحديد الأيام بدقة
+             const dayInCycle = (dayIndex + staff.id) % cycleLen; 
+             if (dayInCycle >= work) return false; // هذا يوم راحة إجباري
+          }
+          // =========================================
+
           if (state.consecutiveWorkDays >= config.maxConsecutiveWork) return false;
           if (!config.allowDoubleShift && state.lastShift === 'N' && shift.code === 'D') return false;
           if (state.totalShifts >= staff.targetShifts + 2) return false;
@@ -297,16 +304,7 @@ const App = () => {
         const scoreStaff = (staff) => { 
             const state = staffState[staff.id];
             let score = (staff.targetShifts - state.totalShifts) * 10;
-            if (staff.preference === 'cycle') {
-                if (state.consecutiveWorkDays > 0 && state.consecutiveWorkDays < config.maxConsecutiveWork) {
-                    score += 50; 
-                    if (state.lastShift === shift.code) score += 20;
-                    if (state.lastShift !== shift.code) score -= 10;
-                }
-                if (state.consecutiveOffDays >= config.maxConsecutiveOff) score += 40;
-            } else {
-                if (state.consecutiveWorkDays > 0) score -= 20;
-            }
+            if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 50; // أولوية قصوى لإكمال السايكل
             if (staff.grade === 'A') score += 2;
             if (config.shiftSystem === '12h') {
                 const pref = staff.shiftPreference || 'auto';
@@ -350,7 +348,6 @@ const App = () => {
         const internsNotReleased = candidates.filter(s => s.role === 'Intern (Not Released)' && !assignedShiftStaff.some(a => a.id === s.id) && staffState[s.id].totalShifts < s.targetShifts);
         if (internsNotReleased.length > 0) assignedShiftStaff.push({ ...internsNotReleased[0], assignedRole: 'Intern (Training)' });
 
-        // --- كشف العجز (Shortage Logic) ---
         if (currentCountable < needStaff) {
             currentShortages.push({
                 day: dateInfo.str,
@@ -361,7 +358,6 @@ const App = () => {
                 missing: needStaff - currentCountable
             });
         }
-        // ----------------------------------
 
         assignedShiftStaff.forEach(s => { 
             staffState[s.id].lastShift = shift.code; 
@@ -385,40 +381,84 @@ const App = () => {
     }
 
     setRosterAndSync(newRoster); 
-    setLogs(generationLogs); 
     setStaffStats(staffState); 
-    setShortageWarnings(currentShortages); // تحديث حالة التنبيهات
+    setShortageWarnings(currentShortages);
     setActiveTab('roster');
   };
 
-  const handlePremiumFeature = (action) => { if (isPremium) action(); else setShowPaymentModal(true); };
-  
-  const exportRosterToCSV = () => {
-    if (roster.length === 0) { alert("الجدول فارغ!"); return; }
-    let csvContent = `NO,STAFF NAME,POS,ID,LEVEL,G,${roster.map(r => r.dateInfo.str).join(',')},Total D, Total N, Total\n`;
-    staffList.forEach((staff, idx) => {
-        const stats = { D: 0, N: 0 };
-        let rowData = `${idx+1},"${staff.name}",${staff.pos || ''},${staff.staffId || ''},${staff.grade || ''},${staff.gender || ''}`;
-        roster.forEach(r => {
-            const isDay = r.shifts['D']?.some(s => s.id === staff.id) || r.shifts['M']?.some(s => s.id === staff.id);
-            const isNight = r.shifts['N']?.some(s => s.id === staff.id);
-            if (isDay) stats.D++; if (isNight) stats.N++;
-            rowData += `,${isDay ? 'D' : isNight ? 'N' : 'X'}`;
-        });
-        rowData += `,${stats.D},${stats.N},${stats.D + stats.N}`;
-        csvContent += rowData + '\n';
-    });
-    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+  // --- 2. دالة التعديل اليدوي (Manual Override) ---
+  const toggleShiftCell = (dayIndex, staffId) => {
+    if (!isPremium) {
+       alert("التعديل اليدوي متاح في النسخة المدفوعة فقط.");
+       setShowPaymentModal(true);
+       return;
+    }
+
+    const newRoster = [...roster];
+    const dayData = newRoster.find(r => r.dayIndex === dayIndex);
+    
+    if (dayData) {
+      const isDay = dayData.shifts['D']?.some(s => s.id === staffId) || dayData.shifts['M']?.some(s => s.id === staffId);
+      const isNight = dayData.shifts['N']?.some(s => s.id === staffId);
+      const staffMember = staffList.find(s => s.id === staffId);
+      if (!staffMember) return;
+
+      if (isDay) {
+        // Switch Day -> Night
+        if (dayData.shifts['D']) dayData.shifts['D'] = dayData.shifts['D'].filter(s => s.id !== staffId);
+        if (dayData.shifts['M']) dayData.shifts['M'] = dayData.shifts['M'].filter(s => s.id !== staffId);
+        if (!dayData.shifts['N']) dayData.shifts['N'] = [];
+        dayData.shifts['N'].push({ ...staffMember, assignedRole: 'Manual' });
+      } else if (isNight) {
+        // Switch Night -> Off
+        if (dayData.shifts['N']) dayData.shifts['N'] = dayData.shifts['N'].filter(s => s.id !== staffId);
+      } else {
+        // Switch Off -> Day
+        const code = config.shiftSystem === '12h' ? 'D' : 'M';
+        if (!dayData.shifts[code]) dayData.shifts[code] = [];
+        dayData.shifts[code].push({ ...staffMember, assignedRole: 'Manual' });
+      }
+      setRosterAndSync(newRoster);
+    }
+  };
+
+  // --- 3. دالة تصدير الإكسل الملون (HTML Based) ---
+  const exportToExcel = () => {
+    if (!isPremium) { setShowPaymentModal(true); return; }
+    
+    const table = document.getElementById("roster-table-export");
+    if (!table) return;
+
+    const htmlContext = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" 
+              xmlns:x="urn:schemas-microsoft-com:office:excel" 
+              xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+            <meta charset="utf-8">
+            <style>
+                table { border-collapse: collapse; width: 100%; }
+                td, th { border: 1px solid #000000; text-align: center; vertical-align: middle; }
+            </style>
+        </head>
+        <body>
+            ${table.outerHTML}
+        </body>
+        </html>
+    `;
+
+    const blob = new Blob([htmlContext], { type: 'application/vnd.ms-excel' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Roster_${config.month + 1}_${config.year}.csv`);
+    link.href = url;
+    link.download = `Roster_${months[config.month]}_${config.year}.xls`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
+  const handlePremiumFeature = (action) => { if (isPremium) action(); else setShowPaymentModal(true); };
   const exportRosterToPDF = () => { window.print(); };
+  
   const handleAuthSubmit = async (e, mode) => {
     e.preventDefault();
     setAuthError(null);
@@ -534,37 +574,15 @@ const App = () => {
                      <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2"><ShieldCheck className="text-emerald-400"/><h3 className="font-bold text-lg">لوحة تحكم الأدمن</h3></div>
                      <div className="p-6 space-y-6">
                         <div className="bg-slate-700/50 p-4 rounded-lg border border-slate-600"><h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2"><UserCheck className="w-4 h-4"/> تفعيل اشتراك لمستخدم</h4><div className="flex gap-2"><input type="text" placeholder="UID" value={targetUserUid} onChange={(e) => setTargetUserUid(e.target.value)} className="flex-1 p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm"/><button onClick={activateUserSubscription} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-sm font-bold">تفعيل سنة</button></div></div>
-                        <div className="border-t border-slate-600 pt-4 mt-4">
-                            <h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2"><Edit3 className="w-4 h-4"/> تعديل بيانات الدفع</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div><label className="block text-xs text-slate-400 mb-1">السعر</label><input type="text" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
-                                <div><label className="block text-xs text-slate-400 mb-1">رقم واتساب</label><input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
-                                <div><label className="block text-xs text-slate-400 mb-1">Instapay</label><input type="text" value={paymentInfo.instapay} onChange={(e) => setPaymentInfo({...paymentInfo, instapay: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
-                                <div><label className="block text-xs text-slate-400 mb-1">محفظة</label><input type="text" value={paymentInfo.wallet} onChange={(e) => setPaymentInfo({...paymentInfo, wallet: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
-                            </div>
-                        </div>
-                        <button onClick={updateAdminSettings} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded font-bold text-sm flex items-center justify-center gap-2"><Save className="w-4 h-4"/> حفظ كل الإعدادات</button>
-                     </div>
-                 </div>
-             )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-xs text-slate-400 mb-1">السعر</label><input type="text" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div><div><label className="block text-xs text-slate-400 mb-1">رقم واتساب</label><input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div></div><button onClick={updateAdminSettings} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded font-bold text-sm flex items-center justify-center gap-2"><Save className="w-4 h-4"/> حفظ بيانات الدفع</button></div></div>)}
              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="md:col-span-2 space-y-6">
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6 space-y-4">
                         <h4 className="text-sm font-bold text-slate-400 uppercase">نظام العمل</h4>
                         <div className="bg-slate-50 p-6 rounded-lg border border-slate-100 space-y-4">
                             <div className="grid grid-cols-2 gap-3">
-                                <div className="col-span-2">
-                                    <label className="block text-sm font-medium text-slate-700 mb-2">بداية الروستر</label>
-                                    <div className="flex gap-2">
-                                        <input type="number" min="1" max="31" value={config.startDay} onChange={(e) => handleConfigDateChange('startDay', e.target.value)} className="w-20 p-2 border rounded font-bold text-center"/>
-                                        <select value={config.month} onChange={(e) => handleConfigDateChange('month', e.target.value)} className="flex-1 p-2 border rounded font-bold">{months.map((m, idx) => <option key={idx} value={idx}>{m}</option>)}</select>
-                                        <input type="number" value={config.year} onChange={(e) => handleConfigDateChange('year', e.target.value)} className="w-24 p-2 border rounded font-bold text-center"/>
-                                    </div>
-                                </div>
-                                <div className="col-span-2">
-                                    <label className="block text-sm font-medium text-slate-700 mb-2">المدة (تلقائي: شهر كامل)</label>
-                                    <input type="number" value={config.durationDays} disabled className="w-full p-2 border rounded font-bold bg-gray-100 text-gray-500 cursor-not-allowed" title="يتم الحساب تلقائياً ليكون شهراً كاملاً"/>
-                                </div>
+                                <div className="col-span-2"><label className="block text-sm font-medium text-slate-700 mb-2">بداية الروستر</label><div className="flex gap-2"><input type="number" min="1" max="31" value={config.startDay} onChange={(e) => handleConfigDateChange('startDay', e.target.value)} className="w-20 p-2 border rounded font-bold text-center"/><select value={config.month} onChange={(e) => handleConfigDateChange('month', e.target.value)} className="flex-1 p-2 border rounded font-bold">{months.map((m, idx) => <option key={idx} value={idx}>{m}</option>)}</select><input type="number" value={config.year} onChange={(e) => handleConfigDateChange('year', e.target.value)} className="w-24 p-2 border rounded font-bold text-center"/></div></div>
+                                <div className="col-span-2"><label className="block text-sm font-medium text-slate-700 mb-2">المدة (يوم)</label><input type="number" value={config.durationDays} disabled className="w-full p-2 border rounded font-bold bg-gray-100 text-gray-500 cursor-not-allowed"/></div>
                             </div>
                             <hr />
                             <div><label className="block text-sm font-medium text-slate-700 mb-2">النظام</label><select value={config.shiftSystem} onChange={(e) => setConfigAndSync({...config, shiftSystem: e.target.value})} className="w-full p-3 border rounded-lg"><option value="12h">12 ساعة (Day / Night)</option><option value="8h">8 ساعات (3 Shifts)</option><option value="24h">24 ساعة</option></select></div>
@@ -574,19 +592,8 @@ const App = () => {
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6">
                         <h4 className="text-sm font-bold text-slate-400 uppercase mb-4">قواعد الراحة والـ Cycle</h4>
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 space-y-3">
-                             <div>
-                                 <label className="block text-xs font-bold text-slate-500 mb-1">أقصى أيام شغل متصل (Max Work)</label>
-                                 <input type="number" value={config.maxConsecutiveWork} onChange={(e) => setConfigAndSync({...config, maxConsecutiveWork: parseInt(e.target.value)})} className="w-full p-2 border rounded text-center font-bold bg-white"/>
-                             </div>
-                             <div>
-                                 <label className="block text-xs font-bold text-slate-500 mb-1">أقصى أيام راحة متصلة (للـ Cycle)</label>
-                                 <input type="number" value={config.maxConsecutiveOff} onChange={(e) => setConfigAndSync({...config, maxConsecutiveOff: parseInt(e.target.value)})} className="w-full p-2 border rounded text-center font-bold bg-white"/>
-                             </div>
-                             <hr/>
-                             <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer">
-                                 <div><span className="text-sm font-medium block">سماح بـ Night ثم Day</span><span className="text-[10px] text-gray-400 block">يعني تطبيق شيفت 24 ساعة (سهر ثم نهار)</span></div>
-                                 <input type="checkbox" checked={config.allowDoubleShift} onChange={(e) => setConfigAndSync({...config, allowDoubleShift: e.target.checked})} className="w-5 h-5"/>
-                             </label>
+                             <div><label className="block text-xs font-bold text-slate-500 mb-1">أقصى أيام شغل متصل (Max Work)</label><input type="number" value={config.maxConsecutiveWork} onChange={(e) => setConfigAndSync({...config, maxConsecutiveWork: parseInt(e.target.value)})} className="w-full p-2 border rounded text-center font-bold bg-white"/></div>
+                             <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><div><span className="text-sm font-medium block">سماح بـ Night ثم Day</span></div><input type="checkbox" checked={config.allowDoubleShift} onChange={(e) => setConfigAndSync({...config, allowDoubleShift: e.target.checked})} className="w-5 h-5"/></label>
                         </div>
                     </div>
                 </div>
@@ -619,8 +626,17 @@ const App = () => {
                          </div>
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدرجة (Grade)</label><select value={staff.grade} onChange={(e) => updateStaff(staff.id, 'grade', e.target.value)} className="w-full border rounded p-1 text-sm font-bold bg-slate-50">{grades.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدور</label><select value={staff.role} onChange={(e) => updateStaff(staff.id, 'role', e.target.value)} className="w-full border rounded p-1 text-sm">{roles.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
-                         {config.shiftSystem === '12h' && (<div><label className="text-xs font-bold text-slate-500 block mb-1">تفضيل الشفت</label><select value={staff.shiftPreference || 'auto'} onChange={(e) => updateStaff(staff.id, 'shiftPreference', e.target.value)} className="w-full border rounded p-1 text-sm font-bold text-indigo-700 bg-indigo-50"><option value="auto">تلقائي</option><option value="all_day">الكل صباحي</option><option value="all_night">الكل مسائي</option><option value="mostly_day">الأغلب صباحي</option><option value="mostly_night">الأغلب مسائي</option></select></div>)}
-                         <div><label className="text-xs font-bold text-slate-500 block mb-1">Target</label><input type="number" value={staff.targetShifts} onChange={(e) => updateStaff(staff.id, 'targetShifts', parseInt(e.target.value))} className="w-16 border rounded text-center text-sm"/></div>
+                         
+                         {/* خانات السايكل (Cycle) الجديدة */}
+                         {staff.preference === 'cycle' && (
+                             <div className="col-span-2 bg-blue-50 p-2 rounded flex gap-2 items-center border border-blue-200 justify-center">
+                                <span className="text-[10px] font-bold text-blue-800">السايكل:</span>
+                                <div><label className="text-[9px] block text-center text-slate-500">شغل</label><input type="number" value={staff.cycleWorkDays || 5} onChange={(e) => updateStaff(staff.id, 'cycleWorkDays', parseInt(e.target.value))} className="w-12 h-6 text-center text-xs border rounded font-bold"/></div>
+                                <span className="font-bold text-slate-400 mt-3">/</span>
+                                <div><label className="text-[9px] block text-center text-slate-500">راحة</label><input type="number" value={staff.cycleOffDays || 4} onChange={(e) => updateStaff(staff.id, 'cycleOffDays', parseInt(e.target.value))} className="w-12 h-6 text-center text-xs border rounded font-bold"/></div>
+                             </div>
+                         )}
+                         
                          <div className="col-span-2 lg:col-span-4"><label className="text-xs font-bold text-slate-500 block mb-1">إجازات</label><div className="grid grid-cols-10 gap-1">{Array.from({length: config.durationDays}, (_, i) => i + 1).map(d => (<button key={d} onClick={() => toggleVacationDay(staff.id, d)} className={`h-6 text-[9px] rounded ${staff.vacationDays.includes(d) ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-400'}`}>{d}</button>))}</div></div>
                       </div>
                    </div>
@@ -632,13 +648,10 @@ const App = () => {
         {activeTab === 'roster' && (
            <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6">
               <div className="bg-white p-5 rounded-xl shadow-sm border overflow-x-auto print:border-none print:shadow-none print:p-0">
-                 {/* --- SHORTAGE ALERT BOX (جديد) --- */}
+                 {/* تنبيهات العجز */}
                  {shortageWarnings.length > 0 && (
                      <div className="mb-6 bg-rose-50 border-l-4 border-rose-500 p-4 rounded-r-lg print:hidden">
-                         <div className="flex items-center gap-2 text-rose-700 font-bold mb-2">
-                             <AlertTriangle className="w-6 h-6" />
-                             <h3>تنبيه: يوجد عجز في بعض الأيام!</h3>
-                         </div>
+                         <div className="flex items-center gap-2 text-rose-700 font-bold mb-2"><AlertTriangle className="w-6 h-6" /><h3>تنبيه: يوجد عجز في بعض الأيام!</h3></div>
                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                              {shortageWarnings.map((warn, idx) => (
                                  <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-rose-100 shadow-sm text-xs">
@@ -647,7 +660,6 @@ const App = () => {
                                  </div>
                              ))}
                          </div>
-                         <p className="text-[10px] text-rose-500 mt-2">* البرنامج لم يجد موظفين متاحين لتحقيق الحد الأدنى المطلوب ({config.minStaffOnlyCount}) في هذه الأيام.</p>
                      </div>
                  )}
 
@@ -655,13 +667,13 @@ const App = () => {
                     <h4 className="text-sm font-bold text-slate-600 flex items-center"><Activity className="w-5 h-5 ml-2 text-indigo-500"/> الجدول النهائي</h4>
                     <div className="flex gap-2">
                        <button onClick={resetRoster} className="text-xs bg-slate-100 px-3 py-1 rounded hover:text-red-500 flex items-center"><RotateCcw className="w-3 h-3 ml-1"/> مسح</button>
-                       <button onClick={() => handlePremiumFeature(exportRosterToCSV)} className={`text-xs px-3 py-1 rounded flex items-center ${isPremium ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-slate-200 text-slate-500'}`}>{isPremium ? <Download className="w-3 h-3 ml-1"/> : <Lock className="w-3 h-3 ml-1"/>} CSV</button>
-                       <button onClick={() => handlePremiumFeature(exportRosterToPDF)} className={`text-xs px-3 py-1 rounded flex items-center ${isPremium ? 'bg-indigo-500 text-white hover:bg-indigo-600' : 'bg-slate-200 text-slate-500'}`}>{isPremium ? <Printer className="w-3 h-3 ml-1"/> : <Lock className="w-3 h-3 ml-1"/>} طباعة PDF</button>
+                       <button onClick={() => handlePremiumFeature(exportToExcel)} className={`text-xs px-3 py-1 rounded flex items-center ${isPremium ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-slate-200 text-slate-500'}`}>{isPremium ? <Download className="w-3 h-3 ml-1"/> : <Lock className="w-3 h-3 ml-1"/>} Excel ملون</button>
+                       <button onClick={() => handlePremiumFeature(exportRosterToPDF)} className={`text-xs px-3 py-1 rounded flex items-center ${isPremium ? 'bg-indigo-500 text-white hover:bg-indigo-600' : 'bg-slate-200 text-slate-500'}`}>{isPremium ? <Printer className="w-3 h-3 ml-1"/> : <Lock className="w-3 h-3 ml-1"/>} PDF</button>
                     </div>
                  </div>
 
                  <div className="overflow-x-auto">
-                     <table className="w-full border-collapse text-[10px] font-sans border border-black text-center">
+                     <table id="roster-table-export" className="w-full border-collapse text-[10px] font-sans border border-black text-center">
                         <thead className="bg-blue-100">
                             <tr>
                                 <th className="border border-black w-6">NO.</th>
@@ -671,7 +683,7 @@ const App = () => {
                                 <th className="border border-black w-6">LEVEL</th>
                                 <th className="border border-black w-6">G</th>
                                 {roster.length > 0 && roster.map((r, i) => (
-                                    <th key={i} className={`border border-black w-6 ${r.dateInfo.isWeekend ? 'bg-orange-200' : ''}`}>
+                                    <th key={i} style={{backgroundColor: r.dateInfo.isWeekend ? '#fed7aa' : '#e0f2fe'}} className="border border-black w-6">
                                         <div className="text-[8px] font-bold">{r.dateInfo.dayName.substring(0,3)}</div>
                                         <div>{r.dateInfo.dayNum}</div>
                                     </th>
@@ -695,13 +707,18 @@ const App = () => {
                                     {roster.map((r, i) => {
                                         const isDay = r.shifts['D']?.some(s => s.id === staff.id) || r.shifts['M']?.some(s => s.id === staff.id);
                                         const isNight = r.shifts['N']?.some(s => s.id === staff.id);
-                                        
-                                        if (isDay) stats.D++;
-                                        if (isNight) stats.N++;
+                                        if (isDay) stats.D++; if (isNight) stats.N++;
 
                                         return (
-                                            <td key={i} className={`border border-black font-bold ${r.dateInfo.isWeekend ? 'bg-orange-200' : ''} ${isDay ? 'bg-yellow-100' : ''}`}>
-                                                {isDay ? 'D' : isNight ? 'N' : <span className="text-red-500">X</span>}
+                                            <td key={i} 
+                                                onClick={() => toggleShiftCell(r.dayIndex, staff.id)}
+                                                style={{ 
+                                                    backgroundColor: isDay ? '#fef9c3' : isNight ? '#374151' : r.dateInfo.isWeekend ? '#fed7aa' : '#ffffff',
+                                                    color: isNight ? '#ffffff' : '#000000',
+                                                    cursor: 'pointer'
+                                                }}
+                                                className="border border-black font-bold select-none hover:opacity-80">
+                                                {isDay ? 'D' : isNight ? 'N' : ''}
                                             </td>
                                         );
                                     })}
@@ -711,15 +728,14 @@ const App = () => {
                                 </tr>
                             )})}
                         </tbody>
-                        <tfoot className="bg-blue-200 font-bold">
+                        <tfoot className="font-bold text-[10px]">
                             <tr>
-                                <td colSpan={6} className="border border-black p-1 text-right px-2">TOTAL</td>
+                                <td colSpan={6} style={{backgroundColor: '#bfdbfe'}} className="border border-black p-1 text-right px-2">TOTAL</td>
                                 {roster.map((r, i) => {
                                     const count = Object.values(r.shifts).flat().length;
-                                    // Check shortage to highlight column
                                     const isShortage = shortageWarnings.some(w => w.day === r.dateInfo.str);
                                     return (
-                                        <td key={i} className={`border border-black ${r.dateInfo.isWeekend ? 'bg-orange-300' : ''} ${isShortage ? 'bg-rose-200 text-rose-700' : ''}`}>{count}</td>
+                                        <td key={i} style={{ backgroundColor: isShortage ? '#ef4444' : r.dateInfo.isWeekend ? '#fdba74' : '#dbeafe', color: isShortage ? '#ffffff' : '#000000' }} className="border border-black text-center py-1">{count}</td>
                                     )
                                 })}
                                 <td colSpan={3} className="border border-black bg-gray-300"></td>
