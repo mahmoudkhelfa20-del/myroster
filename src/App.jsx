@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, Edit3
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, Edit3, AlertTriangle, AlertCircle
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -20,7 +20,6 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// هام: ضع الـ UID الخاص بحسابك هنا لتظهر لك لوحة الأدمن
 const ADMIN_UID = "lpHTOe8uAzbf8MNnX6SGw6W7B5h1"; 
 
 const App = () => {
@@ -34,7 +33,6 @@ const App = () => {
   const isAdmin = userId === ADMIN_UID;
   const [targetUserUid, setTargetUserUid] = useState(""); 
   
-  // بيانات الدفع التي يمكن للأدمن تعديلها
   const [paymentInfo, setPaymentInfo] = useState({
     price: "1000 جنيه",
     instapay: "mahmoudkhelfa@instapay",
@@ -47,16 +45,25 @@ const App = () => {
   const [authMode, setAuthMode] = useState('login');
   const [authError, setAuthError] = useState(null);
   
+  // --- State للعجز ---
+  const [shortageWarnings, setShortageWarnings] = useState([]);
+
   const defaultInitialConfig = {
-    shiftSystem: '12h', allowDayAfterNight: false, requireMedicationNurse: true, allowMultipleCharge: false,
-    minStaffOnlyCount: 3, minSeniorCount: 1,
+    shiftSystem: '12h', 
+    allowDoubleShift: false, 
+    maxConsecutiveWork: 5,   
+    maxConsecutiveOff: 4,    
+    requireMedicationNurse: true, 
+    allowMultipleCharge: false,
+    minStaffOnlyCount: 3, 
+    minSeniorCount: 1,
     startDay: 1, month: new Date().getMonth(), year: new Date().getFullYear(), durationDays: 30,
     hospitalName: "", hospitalLogo: null
   };
 
   const defaultInitialStaff = [
-    { id: 1, staffId: '101', name: 'أحمد محمد', gender: 'M', role: 'Charge', pos: 'CN', grade: 'A', preference: 'cycle', shiftPreference: 'auto', maxConsecutive: 3, targetShifts: 15, vacationDays: [] },
-    { id: 2, staffId: '102', name: 'سارة علي', gender: 'F', role: 'Staff', pos: 'SN', grade: 'B', preference: 'scattered', shiftPreference: 'auto', maxConsecutive: 4, targetShifts: 15, vacationDays: [] }, 
+    { id: 1, staffId: '101', name: 'أحمد محمد', gender: 'M', role: 'Charge', pos: 'CN', grade: 'A', preference: 'cycle', shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] },
+    { id: 2, staffId: '102', name: 'سارة علي', gender: 'F', role: 'Staff', pos: 'SN', grade: 'B', preference: 'scattered', shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] }, 
   ];
 
   const [config, setConfig] = useState(defaultInitialConfig); 
@@ -102,7 +109,6 @@ const App = () => {
   const isSenior = (grade) => ['A', 'B'].includes(grade);
   const isCountable = (role) => ['Charge', 'Medication', 'Staff', 'Intern (Released)'].includes(role);
 
-  // --- LISTENERS ---
   useEffect(() => {
     const fetchPaymentSettings = async () => {
         try {
@@ -139,7 +145,8 @@ const App = () => {
     const unsubscribe = onSnapshot(docRef, async (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setConfig(data.config || defaultInitialConfig);
+        const loadedConfig = data.config || defaultInitialConfig;
+        setConfig({ ...defaultInitialConfig, ...loadedConfig });
         setStaffList(data.staffList || defaultInitialStaff);
         setRoster(data.roster || []);
         if (data.subscriptionEndDate) {
@@ -156,31 +163,21 @@ const App = () => {
     return () => unsubscribe();
   }, [userId]);
 
-  // --- DURATION CALCULATION LOGIC (NEW) ---
-  // This function calculates the exact days between start date and the same day next month
   const calculateMonthlyDuration = (startDay, month, year) => {
       const startDate = new Date(year, month, startDay);
-      const endDate = new Date(year, month + 1, startDay); // Same day next month
-      // Calculate difference in time
+      const endDate = new Date(year, month + 1, startDay); 
       const diffTime = Math.abs(endDate - startDate);
-      // Calculate difference in days
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      return diffDays;
+      return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
   const handleConfigDateChange = (field, value) => {
       let newConfig = { ...config, [field]: value };
-      
-      // Auto-calculate duration if date fields change
       if (field === 'startDay' || field === 'month' || field === 'year') {
           const d = field === 'startDay' ? parseInt(value) : config.startDay;
           const m = field === 'month' ? parseInt(value) : config.month;
           const y = field === 'year' ? parseInt(value) : config.year;
-          
-          const newDuration = calculateMonthlyDuration(d, m, y);
-          newConfig.durationDays = newDuration;
+          newConfig.durationDays = calculateMonthlyDuration(d, m, y);
       }
-
       setConfigAndSync(newConfig);
   };
 
@@ -189,7 +186,6 @@ const App = () => {
     try { await setDoc(doc(db, "rosters", userId), { config: newConfig, staffList: newStaffList, roster: newRoster }, { merge: true }); } catch (e) { console.error(e); }
   };
 
-  // --- ADMIN SETTINGS UPDATE ---
   const updateAdminSettings = async () => {
       if (!isAdmin) return;
       if(window.confirm("هل تريد حفظ التعديلات العامة؟")) {
@@ -229,7 +225,7 @@ const App = () => {
     const defaultPos = 'SN'; 
     setStaffListAndSync([...staffList, { 
         id: newId, staffId: '', name: 'ممرض جديد', gender: 'F', role: 'Staff', pos: defaultPos, grade: 'C', 
-        preference: 'cycle', shiftPreference: 'auto', maxConsecutive: 3, targetShifts: 15, vacationDays: [] 
+        preference: 'cycle', shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] 
     }]);
   };
 
@@ -237,17 +233,11 @@ const App = () => {
   
   const updateStaff = (id, field, value) => {
       let newData = { [field]: value };
-      // Auto update POS
       if (field === 'role') {
-          if (value === 'Charge') {
-              newData.pos = 'CN';
-          } else if (value === 'Staff' || value === 'Medication') {
-              newData.pos = 'SN';
-          } else if (value.includes('Intern')) {
-              newData.pos = 'INT';
-          } else if (value === 'Nurse Aid') {
-              newData.pos = 'NA';
-          }
+          if (value === 'Charge') { newData.pos = 'CN'; } 
+          else if (value === 'Staff' || value === 'Medication') { newData.pos = 'SN'; } 
+          else if (value.includes('Intern')) { newData.pos = 'INT'; } 
+          else if (value === 'Nurse Aid') { newData.pos = 'NA'; }
       }
       setStaffListAndSync(staffList.map(s => s.id === id ? { ...s, ...newData } : s));
   };
@@ -257,19 +247,36 @@ const App = () => {
     let newVacations = staff.vacationDays.includes(dayIndex) ? staff.vacationDays.filter(d => d !== dayIndex) : [...staff.vacationDays, dayIndex];
     setStaffListAndSync(staffList.map(s => s.id === staffId ? { ...s, vacationDays: newVacations } : s));
   };
-  const resetRoster = () => { if(window.confirm("هل أنت متأكد؟")) { setRosterAndSync([]); setLogs([]); setStaffStats({}); } };
+  const resetRoster = () => { 
+      if(window.confirm("هل أنت متأكد؟")) { 
+          setRosterAndSync([]); 
+          setLogs([]); 
+          setStaffStats({}); 
+          setShortageWarnings([]); // مسح التنبيهات
+      } 
+  };
 
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
     const newRoster = []; 
-    const generationLogs = [];
+    
+    let currentShortages = []; // قائمة لتجميع العجز
+
     let staffState = {}; 
-    staffList.forEach(s => staffState[s.id] = { lastShift: null, consecutiveDays: 0, totalShifts: 0 });
+    staffList.forEach(s => {
+        staffState[s.id] = { 
+            lastShift: null, 
+            consecutiveWorkDays: 0, 
+            consecutiveOffDays: 0,
+            totalShifts: 0 
+        };
+    });
 
     for (let dayIndex = 1; dayIndex <= config.durationDays; dayIndex++) {
       const dateInfo = getFullDateLabel(dayIndex);
       let dailyShifts = {};
+      
       shiftTypes.forEach(shift => {
         let assignedShiftStaff = []; 
         let needCharge = 1; let needMed = config.requireMedicationNurse ? 1 : 0; let needStaff = config.minStaffOnlyCount; 
@@ -279,27 +286,39 @@ const App = () => {
           const state = staffState[staff.id];
           if (staff.vacationDays.includes(dayIndex)) return false;
           if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false;
-          if (state.consecutiveDays >= staff.maxConsecutive) return false;
-          if (!config.allowDayAfterNight && (state.lastShift === 'N' || state.lastShift === 'Night')) return false;
+          if (state.consecutiveWorkDays >= config.maxConsecutiveWork) return false;
+          if (!config.allowDoubleShift && state.lastShift === 'N' && shift.code === 'D') return false;
           if (state.totalShifts >= staff.targetShifts + 2) return false;
           return true;
         };
 
         let candidates = staffList.filter(s => isAvailable(s));
+
         const scoreStaff = (staff) => { 
-          let score = (staff.targetShifts - (staffState[staff.id].totalShifts || 0)) * 10;
-          if (staff.preference === 'cycle' && staffState[staff.id].consecutiveDays > 0) score += 5;
-          if (staff.grade === 'A') score += 2;
-          if (config.shiftSystem === '12h') {
-              const pref = staff.shiftPreference || 'auto';
-              const isDayShift = shift.code === 'D';
-              if (pref === 'all_day') { if (isDayShift) score += 100; else score -= 1000; }
-              else if (pref === 'all_night') { if (!isDayShift) score += 100; else score -= 1000; }
-              else if (pref === 'mostly_day') { if (isDayShift) score += 20; else score -= 20; }
-              else if (pref === 'mostly_night') { if (!isDayShift) score += 20; else score -= 20; }
-          }
-          return score;
+            const state = staffState[staff.id];
+            let score = (staff.targetShifts - state.totalShifts) * 10;
+            if (staff.preference === 'cycle') {
+                if (state.consecutiveWorkDays > 0 && state.consecutiveWorkDays < config.maxConsecutiveWork) {
+                    score += 50; 
+                    if (state.lastShift === shift.code) score += 20;
+                    if (state.lastShift !== shift.code) score -= 10;
+                }
+                if (state.consecutiveOffDays >= config.maxConsecutiveOff) score += 40;
+            } else {
+                if (state.consecutiveWorkDays > 0) score -= 20;
+            }
+            if (staff.grade === 'A') score += 2;
+            if (config.shiftSystem === '12h') {
+                const pref = staff.shiftPreference || 'auto';
+                const isDayShift = shift.code === 'D';
+                if (pref === 'all_day') { if (isDayShift) score += 100; else score -= 1000; }
+                else if (pref === 'all_night') { if (!isDayShift) score += 100; else score -= 1000; }
+                else if (pref === 'mostly_day') { if (isDayShift) score += 20; else score -= 20; }
+                else if (pref === 'mostly_night') { if (!isDayShift) score += 20; else score -= 20; }
+            }
+            return score;
         };
+
         candidates.sort((a, b) => scoreStaff(b) - scoreStaff(a));
 
         let chargeNurse = candidates.find(s => s.role === 'Charge');
@@ -331,57 +350,64 @@ const App = () => {
         const internsNotReleased = candidates.filter(s => s.role === 'Intern (Not Released)' && !assignedShiftStaff.some(a => a.id === s.id) && staffState[s.id].totalShifts < s.targetShifts);
         if (internsNotReleased.length > 0) assignedShiftStaff.push({ ...internsNotReleased[0], assignedRole: 'Intern (Training)' });
 
-        assignedShiftStaff.forEach(s => { staffState[s.id].lastShift = shift.code; staffState[s.id].consecutiveDays += 1; staffState[s.id].totalShifts += 1; });
-        const workedIds = assignedShiftStaff.map(s => s.id);
-        staffList.forEach(s => { if (!workedIds.includes(s.id)) { staffState[s.id].consecutiveDays = 0; staffState[s.id].lastShift = null; } });
+        // --- كشف العجز (Shortage Logic) ---
+        if (currentCountable < needStaff) {
+            currentShortages.push({
+                day: dateInfo.str,
+                dayName: dateInfo.dayName,
+                shift: shift.label,
+                needed: needStaff,
+                actual: currentCountable,
+                missing: needStaff - currentCountable
+            });
+        }
+        // ----------------------------------
+
+        assignedShiftStaff.forEach(s => { 
+            staffState[s.id].lastShift = shift.code; 
+            staffState[s.id].consecutiveWorkDays += 1; 
+            staffState[s.id].consecutiveOffDays = 0; 
+            staffState[s.id].totalShifts += 1; 
+        });
+        
         dailyShifts[shift.code] = assignedShiftStaff;
       });
+
+      const workedIds = Object.values(dailyShifts).flat().map(s => s.id);
+      staffList.forEach(s => { 
+          if (!workedIds.includes(s.id)) { 
+              staffState[s.id].consecutiveWorkDays = 0; 
+              staffState[s.id].consecutiveOffDays += 1; 
+          } 
+      });
+
       newRoster.push({ dayIndex, dateInfo, shifts: dailyShifts });
     }
 
-    const nurseAids = staffList.filter(s => s.role === 'Nurse Aid');
-    nurseAids.forEach(aid => {
-        if (staffState[aid.id].totalShifts < aid.targetShifts) {
-            for (let r of newRoster) {
-                if (staffState[aid.id].totalShifts >= aid.targetShifts) break;
-                const dayOfWeek = r.dateInfo.dateObj.getDay();
-                if (dayOfWeek === 0 || dayOfWeek === 1) {
-                    const isWorking = Object.values(r.shifts).flat().some(s => s.id === aid.id);
-                    if (!isWorking) {
-                        const dayShiftCode = config.shiftSystem === '12h' ? 'D' : 'M';
-                        if (r.shifts[dayShiftCode]) { r.shifts[dayShiftCode].push({ ...aid, assignedRole: 'Nurse Aid (Extra)' }); staffState[aid.id].totalShifts += 1; }
-                    }
-                }
-            }
-        }
-    });
-    setRosterAndSync(newRoster); setLogs(generationLogs); setStaffStats(staffState); setActiveTab('roster');
+    setRosterAndSync(newRoster); 
+    setLogs(generationLogs); 
+    setStaffStats(staffState); 
+    setShortageWarnings(currentShortages); // تحديث حالة التنبيهات
+    setActiveTab('roster');
   };
 
   const handlePremiumFeature = (action) => { if (isPremium) action(); else setShowPaymentModal(true); };
   
   const exportRosterToCSV = () => {
     if (roster.length === 0) { alert("الجدول فارغ!"); return; }
-    const shiftTypes = getShiftsForSystem(config.shiftSystem).map(s => s.label);
     let csvContent = `NO,STAFF NAME,POS,ID,LEVEL,G,${roster.map(r => r.dateInfo.str).join(',')},Total D, Total N, Total\n`;
-    
     staffList.forEach((staff, idx) => {
         const stats = { D: 0, N: 0 };
         let rowData = `${idx+1},"${staff.name}",${staff.pos || ''},${staff.staffId || ''},${staff.grade || ''},${staff.gender || ''}`;
-        
         roster.forEach(r => {
             const isDay = r.shifts['D']?.some(s => s.id === staff.id) || r.shifts['M']?.some(s => s.id === staff.id);
             const isNight = r.shifts['N']?.some(s => s.id === staff.id);
-            
-            if (isDay) stats.D++;
-            if (isNight) stats.N++;
+            if (isDay) stats.D++; if (isNight) stats.N++;
             rowData += `,${isDay ? 'D' : isNight ? 'N' : 'X'}`;
         });
-
         rowData += `,${stats.D},${stats.N},${stats.D + stats.N}`;
         csvContent += rowData + '\n';
     });
-
     const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -453,7 +479,6 @@ const App = () => {
       {showAuthModal && renderAuthModal()}
       {showPaymentModal && renderPaymentModal()}
       
-      {/* --- EXCEL STYLE ROSTER (PRINT & VIEW) --- */}
       <div className="hidden print:block bg-white">
          <div className="border-2 border-black mb-1 text-center">
              <div className="bg-blue-200 p-1 border-b border-black font-bold text-sm">Monthly Duty Roster ({months[config.month]} {config.year})</div>
@@ -464,7 +489,6 @@ const App = () => {
          </div>
       </div>
 
-      {/* --- APP HEADER (Hidden on Print) --- */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm backdrop-blur-md bg-opacity-95 print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-20 items-center">
@@ -493,7 +517,6 @@ const App = () => {
       </header>
 
       <main className="max-w-[98%] mx-auto px-2 py-4 pb-24">
-        {/* Mobile Tabs */}
         <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide print:hidden">
             {[ {id:'staff', icon:Users, label:'الفريق'}, {id:'settings', icon:UserCog, label:'الإعدادات'}, {id:'roster', icon:Calendar, label:'الجدول'}, {id:'contact', icon:MessageCircle, label:'تواصل'} ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-shrink-0 flex items-center px-4 py-2 rounded-full text-sm font-bold transition-all border ${activeTab === tab.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200'}`}><tab.icon className="w-4 h-4 ml-2" /> {tab.label}</button>
@@ -511,8 +534,6 @@ const App = () => {
                      <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2"><ShieldCheck className="text-emerald-400"/><h3 className="font-bold text-lg">لوحة تحكم الأدمن</h3></div>
                      <div className="p-6 space-y-6">
                         <div className="bg-slate-700/50 p-4 rounded-lg border border-slate-600"><h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2"><UserCheck className="w-4 h-4"/> تفعيل اشتراك لمستخدم</h4><div className="flex gap-2"><input type="text" placeholder="UID" value={targetUserUid} onChange={(e) => setTargetUserUid(e.target.value)} className="flex-1 p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm"/><button onClick={activateUserSubscription} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-sm font-bold">تفعيل سنة</button></div></div>
-                        
-                        {/* --- RE-ADDED ADMIN PAYMENT SETTINGS --- */}
                         <div className="border-t border-slate-600 pt-4 mt-4">
                             <h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2"><Edit3 className="w-4 h-4"/> تعديل بيانات الدفع</h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -522,7 +543,6 @@ const App = () => {
                                 <div><label className="block text-xs text-slate-400 mb-1">محفظة</label><input type="text" value={paymentInfo.wallet} onChange={(e) => setPaymentInfo({...paymentInfo, wallet: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
                             </div>
                         </div>
-                        
                         <button onClick={updateAdminSettings} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded font-bold text-sm flex items-center justify-center gap-2"><Save className="w-4 h-4"/> حفظ كل الإعدادات</button>
                      </div>
                  </div>
@@ -535,7 +555,6 @@ const App = () => {
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="col-span-2">
                                     <label className="block text-sm font-medium text-slate-700 mb-2">بداية الروستر</label>
-                                    {/* --- MODIFIED: Changed inputs to use handleConfigDateChange --- */}
                                     <div className="flex gap-2">
                                         <input type="number" min="1" max="31" value={config.startDay} onChange={(e) => handleConfigDateChange('startDay', e.target.value)} className="w-20 p-2 border rounded font-bold text-center"/>
                                         <select value={config.month} onChange={(e) => handleConfigDateChange('month', e.target.value)} className="flex-1 p-2 border rounded font-bold">{months.map((m, idx) => <option key={idx} value={idx}>{m}</option>)}</select>
@@ -545,7 +564,6 @@ const App = () => {
                                 <div className="col-span-2">
                                     <label className="block text-sm font-medium text-slate-700 mb-2">المدة (تلقائي: شهر كامل)</label>
                                     <input type="number" value={config.durationDays} disabled className="w-full p-2 border rounded font-bold bg-gray-100 text-gray-500 cursor-not-allowed" title="يتم الحساب تلقائياً ليكون شهراً كاملاً"/>
-                                    <p className="text-[10px] text-slate-400 mt-1">يتم ضبط المدة تلقائياً لتنتهي في نفس اليوم من الشهر التالي.</p>
                                 </div>
                             </div>
                             <hr />
@@ -554,11 +572,21 @@ const App = () => {
                         </div>
                     </div>
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6">
-                        <h4 className="text-sm font-bold text-slate-400 uppercase mb-4">السياسات</h4>
+                        <h4 className="text-sm font-bold text-slate-400 uppercase mb-4">قواعد الراحة والـ Cycle</h4>
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 space-y-3">
-                            <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><span className="text-sm font-medium">Day بعد Night</span><input type="checkbox" checked={config.allowDayAfterNight} onChange={(e) => setConfigAndSync({...config, allowDayAfterNight: e.target.checked})} className="w-5 h-5"/></label>
-                            <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><span className="text-sm font-medium">Medication Nurse</span><input type="checkbox" checked={config.requireMedicationNurse} onChange={(e) => setConfigAndSync({...config, requireMedicationNurse: e.target.checked})} className="w-5 h-5"/></label>
-                            <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><span className="text-sm font-medium">أكثر من Charge</span><input type="checkbox" checked={config.allowMultipleCharge} onChange={(e) => setConfigAndSync({...config, allowMultipleCharge: e.target.checked})} className="w-5 h-5"/></label>
+                             <div>
+                                 <label className="block text-xs font-bold text-slate-500 mb-1">أقصى أيام شغل متصل (Max Work)</label>
+                                 <input type="number" value={config.maxConsecutiveWork} onChange={(e) => setConfigAndSync({...config, maxConsecutiveWork: parseInt(e.target.value)})} className="w-full p-2 border rounded text-center font-bold bg-white"/>
+                             </div>
+                             <div>
+                                 <label className="block text-xs font-bold text-slate-500 mb-1">أقصى أيام راحة متصلة (للـ Cycle)</label>
+                                 <input type="number" value={config.maxConsecutiveOff} onChange={(e) => setConfigAndSync({...config, maxConsecutiveOff: parseInt(e.target.value)})} className="w-full p-2 border rounded text-center font-bold bg-white"/>
+                             </div>
+                             <hr/>
+                             <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer">
+                                 <div><span className="text-sm font-medium block">سماح بـ Night ثم Day</span><span className="text-[10px] text-gray-400 block">يعني تطبيق شيفت 24 ساعة (سهر ثم نهار)</span></div>
+                                 <input type="checkbox" checked={config.allowDoubleShift} onChange={(e) => setConfigAndSync({...config, allowDoubleShift: e.target.checked})} className="w-5 h-5"/>
+                             </label>
                         </div>
                     </div>
                 </div>
@@ -577,15 +605,11 @@ const App = () => {
                       <button onClick={() => removeStaff(staff.id)} className="absolute top-4 left-4 text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                          <div className="col-span-2 lg:col-span-1"><label className="text-xs font-bold text-slate-500 block mb-1">الاسم</label><input type="text" value={staff.name} onChange={(e) => updateStaff(staff.id, 'name', e.target.value)} className="w-full border-b-2 focus:border-indigo-500 outline-none font-bold"/></div>
-                         
-                         {/* ID, Gender, Pos */}
                          <div className="grid grid-cols-3 gap-2">
                              <div><label className="text-[10px] font-bold text-slate-500 block">ID</label><input type="text" value={staff.staffId || ''} onChange={(e) => updateStaff(staff.id, 'staffId', e.target.value)} className="w-full border rounded p-1 text-xs text-center"/></div>
                              <div><label className="text-[10px] font-bold text-slate-500 block">G</label><select value={staff.gender || 'F'} onChange={(e) => updateStaff(staff.id, 'gender', e.target.value)} className="w-full border rounded p-1 text-xs text-center"><option value="M">M</option><option value="F">F</option></select></div>
                              <div><label className="text-[10px] font-bold text-slate-500 block">POS</label><input type="text" value={staff.pos || 'SN'} onChange={(e) => updateStaff(staff.id, 'pos', e.target.value)} className="w-full border rounded p-1 text-xs text-center bg-slate-50" readOnly/></div>
                          </div>
-                         
-                         {/* Preference */}
                          <div>
                              <label className="text-xs font-bold text-slate-500 block mb-1">نمط العمل</label>
                              <select value={staff.preference} onChange={(e) => updateStaff(staff.id, 'preference', e.target.value)} className="w-full border rounded p-1 text-sm bg-indigo-50 text-indigo-900 font-bold">
@@ -593,7 +617,6 @@ const App = () => {
                                  <option value="scattered">متقطع (Scattered)</option>
                              </select>
                          </div>
-
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدرجة (Grade)</label><select value={staff.grade} onChange={(e) => updateStaff(staff.id, 'grade', e.target.value)} className="w-full border rounded p-1 text-sm font-bold bg-slate-50">{grades.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدور</label><select value={staff.role} onChange={(e) => updateStaff(staff.id, 'role', e.target.value)} className="w-full border rounded p-1 text-sm">{roles.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
                          {config.shiftSystem === '12h' && (<div><label className="text-xs font-bold text-slate-500 block mb-1">تفضيل الشفت</label><select value={staff.shiftPreference || 'auto'} onChange={(e) => updateStaff(staff.id, 'shiftPreference', e.target.value)} className="w-full border rounded p-1 text-sm font-bold text-indigo-700 bg-indigo-50"><option value="auto">تلقائي</option><option value="all_day">الكل صباحي</option><option value="all_night">الكل مسائي</option><option value="mostly_day">الأغلب صباحي</option><option value="mostly_night">الأغلب مسائي</option></select></div>)}
@@ -609,7 +632,25 @@ const App = () => {
         {activeTab === 'roster' && (
            <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6">
               <div className="bg-white p-5 rounded-xl shadow-sm border overflow-x-auto print:border-none print:shadow-none print:p-0">
-                 {/* Actions Bar (Hidden in Print) */}
+                 {/* --- SHORTAGE ALERT BOX (جديد) --- */}
+                 {shortageWarnings.length > 0 && (
+                     <div className="mb-6 bg-rose-50 border-l-4 border-rose-500 p-4 rounded-r-lg print:hidden">
+                         <div className="flex items-center gap-2 text-rose-700 font-bold mb-2">
+                             <AlertTriangle className="w-6 h-6" />
+                             <h3>تنبيه: يوجد عجز في بعض الأيام!</h3>
+                         </div>
+                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                             {shortageWarnings.map((warn, idx) => (
+                                 <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-rose-100 shadow-sm text-xs">
+                                     <span className="font-bold text-slate-700">يوم {warn.day} ({warn.dayName})</span>
+                                     <span className="bg-rose-100 text-rose-700 px-2 py-1 rounded font-bold">{warn.shift}: عجز {warn.missing}</span>
+                                 </div>
+                             ))}
+                         </div>
+                         <p className="text-[10px] text-rose-500 mt-2">* البرنامج لم يجد موظفين متاحين لتحقيق الحد الأدنى المطلوب ({config.minStaffOnlyCount}) في هذه الأيام.</p>
+                     </div>
+                 )}
+
                  <div className="flex justify-between mb-4 print:hidden">
                     <h4 className="text-sm font-bold text-slate-600 flex items-center"><Activity className="w-5 h-5 ml-2 text-indigo-500"/> الجدول النهائي</h4>
                     <div className="flex gap-2">
@@ -619,7 +660,6 @@ const App = () => {
                     </div>
                  </div>
 
-                 {/* EXCEL STYLE TABLE */}
                  <div className="overflow-x-auto">
                      <table className="w-full border-collapse text-[10px] font-sans border border-black text-center">
                         <thead className="bg-blue-100">
@@ -676,8 +716,10 @@ const App = () => {
                                 <td colSpan={6} className="border border-black p-1 text-right px-2">TOTAL</td>
                                 {roster.map((r, i) => {
                                     const count = Object.values(r.shifts).flat().length;
+                                    // Check shortage to highlight column
+                                    const isShortage = shortageWarnings.some(w => w.day === r.dateInfo.str);
                                     return (
-                                        <td key={i} className={`border border-black ${r.dateInfo.isWeekend ? 'bg-orange-300' : ''}`}>{count}</td>
+                                        <td key={i} className={`border border-black ${r.dateInfo.isWeekend ? 'bg-orange-300' : ''} ${isShortage ? 'bg-rose-200 text-rose-700' : ''}`}>{count}</td>
                                     )
                                 })}
                                 <td colSpan={3} className="border border-black bg-gray-300"></td>
