@@ -89,7 +89,7 @@ const App = () => {
       str: formatDate(date), 
       dayNum: date.getDate(), 
       dayName: dayNamesEn[date.getDay()], 
-      isWeekend: date.getDay() === 5 
+      isWeekend: date.getDay() === 5 // Friday
     };
   };
 
@@ -107,6 +107,7 @@ const App = () => {
   const isSenior = (grade) => ['A', 'B'].includes(grade);
   const isCountable = (role) => ['Charge', 'Medication', 'Staff', 'Intern (Released)'].includes(role);
 
+  // --- Listeners ---
   useEffect(() => {
     const fetchPaymentSettings = async () => {
         try {
@@ -143,8 +144,7 @@ const App = () => {
     const unsubscribe = onSnapshot(docRef, async (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        const loadedConfig = data.config || defaultInitialConfig;
-        setConfig({ ...defaultInitialConfig, ...loadedConfig });
+        setConfig(data.config || defaultInitialConfig);
         setStaffList(data.staffList || defaultInitialStaff);
         setRoster(data.roster || []);
         if (data.subscriptionEndDate) {
@@ -254,14 +254,14 @@ const App = () => {
       } 
   };
 
-  // --- 1. منطق التوزيع (محدث بالعدالة) ---
+  // --- CORE ALGORITHM: FAIRNESS + STRICT RULES ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
     const newRoster = []; 
     let currentShortages = []; 
     
-    // إعداد الحالة: إضافة عدادات Day و Night
+    // تهيئة الحالة والعدادات (Balance Counters)
     let staffState = {}; 
     staffList.forEach(s => {
         staffState[s.id] = { 
@@ -269,8 +269,8 @@ const App = () => {
             consecutiveWorkDays: 0, 
             consecutiveOffDays: 0, 
             totalShifts: 0,
-            dayShiftsCount: 0, // عداد الصباحي
-            nightShiftsCount: 0 // عداد المسائي
+            dayShiftsCount: 0, // عداد شفتات الصباح
+            nightShiftsCount: 0 // عداد شفتات السهر
         };
     });
 
@@ -280,67 +280,84 @@ const App = () => {
       
       shiftTypes.forEach(shift => {
         let assignedShiftStaff = []; 
-        let needCharge = 1; let needMed = config.requireMedicationNurse ? 1 : 0; let needStaff = config.minStaffOnlyCount; 
-        let needAid = 1; let needSeniors = config.minSeniorCount || 1;
+        // الاحتياجات الأساسية لكل شفت
+        let needCharge = 1; 
+        let needMed = config.requireMedicationNurse ? 1 : 0; 
+        let needStaff = config.minStaffOnlyCount; 
+        let needAid = staffList.some(s => s.role === 'Nurse Aid') ? 1 : 0; 
+        let needSeniors = config.minSeniorCount || 1;
 
+        // 1. تحديد المتاحين
         const isAvailable = (staff) => {
           const state = staffState[staff.id];
-          if (staff.vacationDays.includes(dayIndex)) return false;
-          if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false;
+          if (staff.vacationDays.includes(dayIndex)) return false; // إجازة رسمية
+          if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false; // شغال شفت تاني اليوم
           
+          // منطق السايكل (لو مختاره)
           if (staff.preference === 'cycle') {
              const work = staff.cycleWorkDays || 5;
              const off = staff.cycleOffDays || 4;
              const cycleLen = work + off;
              const dayInCycle = (dayIndex + staff.id) % cycleLen; 
-             if (dayInCycle >= work) return false; 
+             if (dayInCycle >= work) return false; // فترة راحة السايكل
           }
 
           if (state.consecutiveWorkDays >= config.maxConsecutiveWork) return false;
+          // منع نزول Day بعد Night
           if (!config.allowDoubleShift && state.lastShift === 'N' && shift.code === 'D') return false;
-          if (state.totalShifts >= staff.targetShifts + 2) return false;
+          if (state.totalShifts >= staff.targetShifts + 2) return false; // تجاوز التارجت بزيادة
           return true;
         };
 
         let candidates = staffList.filter(s => isAvailable(s));
 
+        // 2. حساب النقاط (Scoring System) للعدالة
         const scoreStaff = (staff) => { 
             const state = staffState[staff.id];
+            // الأولوية لمن لم يكمل التارجت
             let score = (staff.targetShifts - state.totalShifts) * 10;
             
-            // Cycle Logic
+            // Cycle: أولوية للاستمرار في العمل
             if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 50;
             
-            // Seniority Logic
+            // Seniority
             if (staff.grade === 'A') score += 2;
             
-            // --- Fairness Algorithm (خوارزمية العدالة) ---
+            // --- Nurse Aid Special Rule (Sun/Mon Priority) ---
+            if (staff.role === 'Nurse Aid') {
+                const isTargetDeficient = state.totalShifts < staff.targetShifts;
+                const isDayShift = shift.code === 'D' || shift.code === 'M';
+                const dayOfWeek = dateInfo.dateObj.getDay(); // 0=Sun, 1=Mon
+                
+                // لو الـ NA محتاج شفتات واليوم أحد أو اثنين صباحي -> أولوية قصوى
+                if (isTargetDeficient && isDayShift && (dayOfWeek === 0 || dayOfWeek === 1)) {
+                     score += 200; 
+                }
+            }
+            
+            // --- Fairness Logic (الميزان) ---
+            // محاولة مساوة عدد الـ Day والـ Night
             if (config.shiftSystem === '12h') {
                 const pref = staff.shiftPreference || 'auto';
                 const isDayShift = shift.code === 'D';
                 
                 if (pref === 'auto') {
-                    // ميزان العدل: حاول تعويض الشفت الناقص
                     const dCount = state.dayShiftsCount || 0;
                     const nCount = state.nightShiftsCount || 0;
                     
                     if (isDayShift) {
-                        // لو الصباحي أقل من المسائي، زود فرصته ياخد صباحي
-                        if (dCount < nCount) score += 40; 
-                        // لو الصباحي أكتر، قلل فرصته
-                        else if (dCount > nCount) score -= 20;
-                    } else { // Night Shift
-                        // لو المسائي أقل من الصباحي، زود فرصته ياخد مسائي
-                        if (nCount < dCount) score += 40;
-                        // لو المسائي أكتر، قلل فرصته
-                        else if (nCount > dCount) score -= 20;
+                        if (dCount < nCount) score += 40; // محتاج داي
+                        else if (dCount > nCount) score -= 20; // واخد داي كتير
+                    } else { // Night
+                        if (nCount < dCount) score += 40; // محتاج نايت
+                        else if (nCount > dCount) score -= 20; // واخد نايت كتير
                     }
                 } else {
-                    // التفضيلات الصريحة (Strict Preferences)
-                    if (pref === 'all_day') { if (isDayShift) score += 100; else score -= 1000; }
-                    else if (pref === 'all_night') { if (!isDayShift) score += 100; else score -= 1000; }
-                    else if (pref === 'mostly_day') { if (isDayShift) score += 20; else score -= 20; }
-                    else if (pref === 'mostly_night') { if (!isDayShift) score += 20; else score -= 20; }
+                    // تفضيلات صريحة
+                    if (pref === 'all_day') { if (isDayShift) score += 1000; else score -= 10000; }
+                    else if (pref === 'all_night') { if (!isDayShift) score += 1000; else score -= 10000; }
+                    else if (pref === 'mostly_day') { if (isDayShift) score += 50; else score -= 50; }
+                    else if (pref === 'mostly_night') { if (!isDayShift) score += 50; else score -= 50; }
                 }
             }
             return score;
@@ -348,20 +365,31 @@ const App = () => {
 
         candidates.sort((a, b) => scoreStaff(b) - scoreStaff(a));
 
+        // 3. توزيع الأدوار (Strict Order)
+        
+        // A. Charge Nurse (Must have 1)
         let chargeNurse = candidates.find(s => s.role === 'Charge');
         if (!chargeNurse && candidates.length > 0) chargeNurse = candidates.find(s => isCountable(s.role) && isSenior(s.grade));
         if (chargeNurse) assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' });
 
+        // B. Nurse Aid (Must have 1)
         if (needAid > 0) {
             const aid = candidates.find(s => s.role === 'Nurse Aid' && !assignedShiftStaff.some(a => a.id === s.id));
             if (aid) assignedShiftStaff.push({ ...aid, assignedRole: 'Nurse Aid' });
         }
-
+        
+        // C. Medication Nurse (Must have 1)
         if (needMed > 0) {
           const medNurse = candidates.find(s => s.role === 'Medication' && !assignedShiftStaff.some(a => a.id === s.id));
           if (medNurse) assignedShiftStaff.push({ ...medNurse, assignedRole: 'Medication' });
+          else {
+              // If no specific Med nurse, pick a qualified staff
+              const altMed = candidates.find(s => isCountable(s.role) && !assignedShiftStaff.some(a => a.id === s.id));
+              if (altMed) assignedShiftStaff.push({ ...altMed, assignedRole: 'Medication' });
+          }
         }
 
+        // D. Seniors & Staff (Fill the rest)
         let currentSeniors = assignedShiftStaff.filter(s => isSenior(s.grade)).length;
         while (currentSeniors < needSeniors) {
             const seniorCandidate = candidates.find(s => !assignedShiftStaff.some(a => a.id === s.id) && isCountable(s.role) && isSenior(s.grade));
@@ -374,9 +402,11 @@ const App = () => {
           if (nextStaff) { assignedShiftStaff.push({ ...nextStaff, assignedRole: 'Staff' }); currentCountable++; } else { break; }
         }
 
+        // E. Interns
         const internsNotReleased = candidates.filter(s => s.role === 'Intern (Not Released)' && !assignedShiftStaff.some(a => a.id === s.id) && staffState[s.id].totalShifts < s.targetShifts);
         if (internsNotReleased.length > 0) assignedShiftStaff.push({ ...internsNotReleased[0], assignedRole: 'Intern (Training)' });
 
+        // F. Shortage Check
         if (currentCountable < needStaff) {
             currentShortages.push({
                 day: dateInfo.str,
@@ -388,13 +418,13 @@ const App = () => {
             });
         }
 
+        // Update State Counters
         assignedShiftStaff.forEach(s => { 
             staffState[s.id].lastShift = shift.code; 
             staffState[s.id].consecutiveWorkDays += 1; 
             staffState[s.id].consecutiveOffDays = 0; 
             staffState[s.id].totalShifts += 1;
             
-            // تحديث عداد الصباحي والمسائي
             if (shift.code === 'D' || shift.code === 'M') staffState[s.id].dayShiftsCount += 1;
             if (shift.code === 'N') staffState[s.id].nightShiftsCount += 1;
         });
@@ -410,28 +440,19 @@ const App = () => {
           } 
       });
 
-      newRoster.push({ dayIndex, dateInfo, shifts: dailyShifts });
-    }
+      // حساب الاستاف الصافي (بدون Charge/Med) للفوتر
+      const countStaffOnly = (arr) => arr ? arr.filter(s => !['Charge', 'Medication'].includes(s.assignedRole)).length : 0;
+      const dayStaffCount = countStaffOnly(dailyShifts['D'] || dailyShifts['M']);
+      const nightStaffCount = countStaffOnly(dailyShifts['N']);
 
-    const nurseAids = staffList.filter(s => s.role === 'Nurse Aid');
-    nurseAids.forEach(aid => {
-        if (staffState[aid.id].totalShifts < aid.targetShifts) {
-            for (let r of newRoster) {
-                if (staffState[aid.id].totalShifts >= aid.targetShifts) break;
-                const dayOfWeek = r.dateInfo.dateObj.getDay();
-                if (dayOfWeek === 0 || dayOfWeek === 1) {
-                    const isWorking = Object.values(r.shifts).flat().some(s => s.id === aid.id);
-                    if (!isWorking) {
-                        const dayShiftCode = config.shiftSystem === '12h' ? 'D' : 'M';
-                        if (r.shifts[dayShiftCode]) {
-                            r.shifts[dayShiftCode].push({ ...aid, assignedRole: 'Nurse Aid (Extra)' });
-                            staffState[aid.id].totalShifts += 1;
-                        }
-                    }
-                }
-            }
-        }
-    });
+      newRoster.push({ 
+          dayIndex, 
+          dateInfo, 
+          shifts: dailyShifts,
+          dayStaffCount,
+          nightStaffCount
+      });
+    }
 
     setRosterAndSync(newRoster); 
     setStaffStats(staffState); 
@@ -485,6 +506,7 @@ const App = () => {
             <style>
                 table { border-collapse: collapse; width: 100%; }
                 td, th { border: 1px solid #000000; text-align: center; vertical-align: middle; }
+                .off-cell { background-color: #f3f4f6; color: #9ca3af; } 
             </style>
         </head>
         <body>
@@ -664,31 +686,18 @@ const App = () => {
                       <button onClick={() => removeStaff(staff.id)} className="absolute top-4 left-4 text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                         {/* الاسم */}
-                         <div className="col-span-2 lg:col-span-1">
-                             <label className="text-xs font-bold text-slate-500 block mb-1">الاسم</label>
-                             <input type="text" value={staff.name} onChange={(e) => updateStaff(staff.id, 'name', e.target.value)} className="w-full border-b-2 focus:border-indigo-500 outline-none font-bold"/>
-                         </div>
-                         
-                         {/* البيانات الأساسية */}
+                         <div className="col-span-2 lg:col-span-1"><label className="text-xs font-bold text-slate-500 block mb-1">الاسم</label><input type="text" value={staff.name} onChange={(e) => updateStaff(staff.id, 'name', e.target.value)} className="w-full border-b-2 focus:border-indigo-500 outline-none font-bold"/></div>
                          <div className="grid grid-cols-3 gap-2">
                              <div><label className="text-[10px] font-bold text-slate-500 block">ID</label><input type="text" value={staff.staffId || ''} onChange={(e) => updateStaff(staff.id, 'staffId', e.target.value)} className="w-full border rounded p-1 text-xs text-center"/></div>
                              <div><label className="text-[10px] font-bold text-slate-500 block">G</label><select value={staff.gender || 'F'} onChange={(e) => updateStaff(staff.id, 'gender', e.target.value)} className="w-full border rounded p-1 text-xs text-center"><option value="M">M</option><option value="F">F</option></select></div>
                              <div><label className="text-[10px] font-bold text-slate-500 block">POS</label><input type="text" value={staff.pos || 'SN'} onChange={(e) => updateStaff(staff.id, 'pos', e.target.value)} className="w-full border rounded p-1 text-xs text-center bg-slate-50" readOnly/></div>
                          </div>
 
-                         {/* --- هنا الخانة اللي كانت ناقصة (Target) --- */}
                          <div className="bg-yellow-50 p-1 rounded border border-yellow-200">
                              <label className="text-xs font-bold text-slate-700 block mb-1 text-center">المطلوب (Target)</label>
-                             <input 
-                                type="number" 
-                                value={staff.targetShifts} 
-                                onChange={(e) => updateStaff(staff.id, 'targetShifts', parseInt(e.target.value))} 
-                                className="w-full border rounded p-1 text-sm font-bold text-center bg-white"
-                             />
+                             <input type="number" value={staff.targetShifts} onChange={(e) => updateStaff(staff.id, 'targetShifts', parseInt(e.target.value))} className="w-full border rounded p-1 text-sm font-bold text-center bg-white"/>
                          </div>
-                         {/* ----------------------------------------- */}
-
+                         
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدرجة (Grade)</label><select value={staff.grade} onChange={(e) => updateStaff(staff.id, 'grade', e.target.value)} className="w-full border rounded p-1 text-sm font-bold bg-slate-50">{grades.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدور</label><select value={staff.role} onChange={(e) => updateStaff(staff.id, 'role', e.target.value)} className="w-full border rounded p-1 text-sm">{roles.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
                          
@@ -699,9 +708,8 @@ const App = () => {
                                  <option value="scattered">متقطع (Scattered)</option>
                              </select>
                          </div>
-
-                         {/* إعدادات التفضيل والسايكل */}
-                         {config.shiftSystem === '12h' && staff.preference !== 'cycle' && (
+                         
+                         {config.shiftSystem === '12h' && (
                             <div>
                                 <label className="text-xs font-bold text-slate-500 block mb-1">تفضيل الشفت</label>
                                 <select value={staff.shiftPreference || 'auto'} onChange={(e) => updateStaff(staff.id, 'shiftPreference', e.target.value)} className="w-full border rounded p-1 text-sm font-bold text-indigo-700 bg-indigo-50">
@@ -794,16 +802,28 @@ const App = () => {
                                         const isNight = r.shifts['N']?.some(s => s.id === staff.id);
                                         if (isDay) stats.D++; if (isNight) stats.N++;
 
+                                        let content = '';
+                                        let cellStyle = { color: '#000000', backgroundColor: '#ffffff' };
+
+                                        if (isDay) {
+                                            content = 'D';
+                                            cellStyle.backgroundColor = '#fef9c3';
+                                        } else if (isNight) {
+                                            content = 'N';
+                                            cellStyle.backgroundColor = '#374151';
+                                            cellStyle.color = '#ffffff';
+                                        } else {
+                                            content = 'X';
+                                            cellStyle.backgroundColor = r.dateInfo.isWeekend ? '#fed7aa' : '#f0f4f8'; 
+                                            cellStyle.color = '#9ca3af'; 
+                                        }
+
                                         return (
                                             <td key={i} 
                                                 onClick={() => toggleShiftCell(r.dayIndex, staff.id)}
-                                                style={{ 
-                                                    backgroundColor: isDay ? '#fef9c3' : isNight ? '#374151' : r.dateInfo.isWeekend ? '#fed7aa' : '#ffffff',
-                                                    color: isNight ? '#ffffff' : '#000000',
-                                                    cursor: 'pointer'
-                                                }}
+                                                style={{ ...cellStyle, cursor: 'pointer' }}
                                                 className="border border-black font-bold select-none hover:opacity-80">
-                                                {isDay ? 'D' : isNight ? 'N' : ''}
+                                                {content}
                                             </td>
                                         );
                                     })}
@@ -815,7 +835,7 @@ const App = () => {
                         </tbody>
                         <tfoot className="font-bold text-[10px]">
                             <tr>
-                                <td colSpan={6} style={{backgroundColor: '#bfdbfe'}} className="border border-black p-1 text-right px-2">TOTAL</td>
+                                <td colSpan={6} style={{backgroundColor: '#bfdbfe'}} className="border border-black p-1 text-right px-2">TOTAL Staff (All Roles)</td>
                                 {roster.map((r, i) => {
                                     const count = Object.values(r.shifts).flat().length;
                                     const isShortage = shortageWarnings.some(w => w.day === r.dateInfo.str);
@@ -823,6 +843,22 @@ const App = () => {
                                         <td key={i} style={{ backgroundColor: isShortage ? '#ef4444' : r.dateInfo.isWeekend ? '#fdba74' : '#dbeafe', color: isShortage ? '#ffffff' : '#000000' }} className="border border-black text-center py-1">{count}</td>
                                     )
                                 })}
+                                <td colSpan={3} className="border border-black bg-gray-300"></td>
+                            </tr>
+                            
+                            <tr>
+                                <td colSpan={6} style={{backgroundColor: '#e9d5ff'}} className="border border-black p-1 text-right px-2 text-indigo-900">Staff Available (Day)</td>
+                                {roster.map((r, i) => (
+                                    <td key={i} style={{ backgroundColor: '#e9d5ff' }} className="border border-black text-center py-1 text-indigo-900">{r.dayStaffCount}</td>
+                                ))}
+                                <td colSpan={3} className="border border-black bg-gray-300"></td>
+                            </tr>
+
+                            <tr>
+                                <td colSpan={6} style={{backgroundColor: '#475569'}} className="border border-black p-1 text-right px-2 text-white">Staff Available (Night)</td>
+                                {roster.map((r, i) => (
+                                    <td key={i} style={{ backgroundColor: '#475569', color: '#ffffff' }} className="border border-black text-center py-1">{r.nightStaffCount}</td>
+                                ))}
                                 <td colSpan={3} className="border border-black bg-gray-300"></td>
                             </tr>
                         </tfoot>
