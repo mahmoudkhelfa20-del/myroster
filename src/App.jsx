@@ -54,14 +54,14 @@ const App = () => {
   // Data States
   const defaultInitialConfig = {
     shiftSystem: '12h', allowDayAfterNight: false, requireMedicationNurse: true, allowMultipleCharge: false,
-    minStaffOnlyCount: 3, startDay: 1, month: new Date().getMonth(), year: new Date().getFullYear(), durationDays: 30,
-    hospitalName: "", 
-    hospitalLogo: null
+    minStaffOnlyCount: 3, minSeniorCount: 1, // Added Senior Count
+    startDay: 1, month: new Date().getMonth(), year: new Date().getFullYear(), durationDays: 30,
+    hospitalName: "", hospitalLogo: null
   };
 
   const defaultInitialStaff = [
     { id: 1, name: 'أحمد محمد', role: 'Charge', grade: 'A', preference: 'cycle', maxConsecutive: 3, targetShifts: 15, vacationDays: [] },
-    { id: 2, name: 'سارة علي', role: 'Staff', grade: 'A', preference: 'scattered', maxConsecutive: 4, targetShifts: 15, vacationDays: [] }, 
+    { id: 2, name: 'سارة علي', role: 'Staff', grade: 'B', preference: 'scattered', maxConsecutive: 4, targetShifts: 15, vacationDays: [] }, 
   ];
 
   const [config, setConfig] = useState(defaultInitialConfig); 
@@ -103,8 +103,9 @@ const App = () => {
     }
   };
 
-  // --- تحديث قائمة الأدوار لتشمل الأنواع الجديدة ---
   const roles = ['Charge', 'Medication', 'Staff', 'Nurse Aid', 'Intern (Released)', 'Intern (Not Released)'];
+  const grades = ['A', 'B', 'C', 'D']; // Added Grades List
+  const isSenior = (grade) => ['A', 'B'].includes(grade);
   const isCountable = (role) => ['Charge', 'Medication', 'Staff', 'Intern (Released)'].includes(role);
 
   // --- LISTENERS ---
@@ -226,7 +227,7 @@ const App = () => {
   };
   const resetRoster = () => { if(window.confirm("هل أنت متأكد؟")) { setRosterAndSync([]); setLogs([]); setStaffStats({}); } };
 
-  // --- 🧠 خوارزمية التوزيع الذكية (المعدلة) ---
+  // --- 🧠 خوارزمية التوزيع (المحدثة بالـ Seniors) ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
@@ -235,7 +236,6 @@ const App = () => {
     let staffState = {}; 
     staffList.forEach(s => staffState[s.id] = { lastShift: null, consecutiveDays: 0, totalShifts: 0 });
 
-    // 1. التوزيع الأساسي (يوم بيوم)
     for (let dayIndex = 1; dayIndex <= config.durationDays; dayIndex++) {
       const dateInfo = getFullDateLabel(dayIndex);
       let dailyShifts = {};
@@ -244,8 +244,8 @@ const App = () => {
         let needCharge = 1; 
         let needMed = config.requireMedicationNurse ? 1 : 0; 
         let needStaff = config.minStaffOnlyCount; 
-        // Nurse Aid مطلوب واحد على الأقل
         let needAid = 1;
+        let needSeniors = config.minSeniorCount || 1; // العدد المطلوب من السنيور
 
         const isAvailable = (staff) => {
           const state = staffState[staff.id];
@@ -266,60 +266,59 @@ const App = () => {
         };
         candidates.sort((a, b) => scoreStaff(b) - scoreStaff(a));
 
-        // أ. تعيين Charge
+        // 1. تعيين Charge (غالباً سنيور)
         let chargeNurse = candidates.find(s => s.role === 'Charge');
         if (!chargeNurse && candidates.length > 0) { 
-            chargeNurse = candidates.find(s => isCountable(s.role) && s.grade === 'A'); // Try find Senior Staff
+            chargeNurse = candidates.find(s => isCountable(s.role) && isSenior(s.grade));
         }
-        if (chargeNurse) {
-            assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' });
-            // Charge counts as Staff if needed (usually they are separate but assume they cover logic)
-        }
+        if (chargeNurse) assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' });
 
-        // ب. تعيين Nurse Aid (واحد إجباري)
+        // 2. تعيين Nurse Aid
         if (needAid > 0) {
             const aid = candidates.find(s => s.role === 'Nurse Aid' && !assignedShiftStaff.some(a => a.id === s.id));
-            if (aid) {
-                assignedShiftStaff.push({ ...aid, assignedRole: 'Nurse Aid' });
-            } else {
-                // Log warning if no Aid available
-                // generationLogs.push(`Day ${dayIndex} ${shift.label}: No Nurse Aid available.`);
-            }
+            if (aid) assignedShiftStaff.push({ ...aid, assignedRole: 'Nurse Aid' });
         }
 
-        // ج. تعيين Medication
+        // 3. تعيين Medication
         if (needMed > 0) {
           const medNurse = candidates.find(s => s.role === 'Medication' && !assignedShiftStaff.some(a => a.id === s.id));
           if (medNurse) assignedShiftStaff.push({ ...medNurse, assignedRole: 'Medication' });
         }
 
-        // د. إكمال العدد (Staff + Intern Released)
-        // نحسب الموجودين حالياً (Charge + Med + Staff + Released)
+        // 4. ضمان وجود السنيور (Senior Check)
+        let currentSeniors = assignedShiftStaff.filter(s => isSenior(s.grade)).length;
+        while (currentSeniors < needSeniors) {
+            // ابحث عن سنيور (A أو B) غير معين
+            const seniorCandidate = candidates.find(s => 
+                !assignedShiftStaff.some(a => a.id === s.id) && 
+                isCountable(s.role) && 
+                isSenior(s.grade)
+            );
+            if (seniorCandidate) {
+                assignedShiftStaff.push({ ...seniorCandidate, assignedRole: 'Staff (Senior)' });
+                currentSeniors++;
+            } else {
+                // مفيش سنيور متاح، خد أي حد وخلاص
+                break; 
+            }
+        }
+
+        // 5. إكمال العدد (Staff / Released Intern)
         let currentCountable = assignedShiftStaff.filter(s => isCountable(s.role)).length;
-        
         while (currentCountable < needStaff) {
-          const nextStaff = candidates.find(s => 
-            !assignedShiftStaff.some(a => a.id === s.id) && 
-            isCountable(s.role)
-          );
+          const nextStaff = candidates.find(s => !assignedShiftStaff.some(a => a.id === s.id) && isCountable(s.role));
           if (nextStaff) {
               assignedShiftStaff.push({ ...nextStaff, assignedRole: 'Staff' });
               currentCountable++;
           } else { break; }
         }
 
-        // هـ. إضافة Intern Not Released (زيادة للتعليم ولا ينقص العدد المطلوب)
-        const internsNotReleased = candidates.filter(s => 
-            s.role === 'Intern (Not Released)' && 
-            !assignedShiftStaff.some(a => a.id === s.id) &&
-            staffState[s.id].totalShifts < s.targetShifts
-        );
-        // نأخذ واحد أو اثنين حسب المتاح
+        // 6. إضافة Intern Not Released (زيادة تعليم)
+        const internsNotReleased = candidates.filter(s => s.role === 'Intern (Not Released)' && !assignedShiftStaff.some(a => a.id === s.id) && staffState[s.id].totalShifts < s.targetShifts);
         if (internsNotReleased.length > 0) {
             assignedShiftStaff.push({ ...internsNotReleased[0], assignedRole: 'Intern (Training)' });
         }
 
-        // تحديث الحالة
         assignedShiftStaff.forEach(s => { staffState[s.id].lastShift = shift.code; staffState[s.id].consecutiveDays += 1; staffState[s.id].totalShifts += 1; });
         const workedIds = assignedShiftStaff.map(s => s.id);
         staffList.forEach(s => { if (!workedIds.includes(s.id)) { staffState[s.id].consecutiveDays = 0; staffState[s.id].lastShift = null; } });
@@ -328,26 +327,17 @@ const App = () => {
       newRoster.push({ dayIndex, dateInfo, shifts: dailyShifts });
     }
 
-    // 2. مرحلة ما بعد المعالجة (تكملة Nurse Aid في الأحد والاثنين)
-    // Post-Processing Logic for Nurse Aids Overflow
+    // Post-Process for Nurse Aid Overflow (Sun/Mon Days)
     const nurseAids = staffList.filter(s => s.role === 'Nurse Aid');
     nurseAids.forEach(aid => {
-        // لو لسه مكملش التارجت
         if (staffState[aid.id].totalShifts < aid.targetShifts) {
-            // نلف على الأيام تاني
             for (let r of newRoster) {
                 if (staffState[aid.id].totalShifts >= aid.targetShifts) break;
-                
-                // الأحد (0) أو الاثنين (1)
                 const dayOfWeek = r.dateInfo.dateObj.getDay();
                 if (dayOfWeek === 0 || dayOfWeek === 1) {
-                    // هل هو شغال في اليوم ده أصلاً؟
                     const isWorking = Object.values(r.shifts).flat().some(s => s.id === aid.id);
-                    
                     if (!isWorking) {
-                        // نضيفه Day شيفت
-                        // Note: We only support 'D' for overflow as per request
-                        const dayShiftCode = config.shiftSystem === '12h' ? 'D' : 'M'; // Default to Morning if 8h
+                        const dayShiftCode = config.shiftSystem === '12h' ? 'D' : 'M';
                         if (r.shifts[dayShiftCode]) {
                             r.shifts[dayShiftCode].push({ ...aid, assignedRole: 'Nurse Aid (Extra)' });
                             staffState[aid.id].totalShifts += 1;
@@ -548,7 +538,10 @@ const App = () => {
                             </div>
                             <hr />
                             <div><label className="block text-sm font-medium text-slate-700 mb-2">النظام</label><select value={config.shiftSystem} onChange={(e) => setConfigAndSync({...config, shiftSystem: e.target.value})} className="w-full p-3 border rounded-lg"><option value="12h">12 ساعة (Day / Night)</option><option value="8h">8 ساعات (3 Shifts)</option><option value="24h">24 ساعة</option></select></div>
-                            <div><label className="block text-sm font-medium text-slate-700 mb-2">الحد الأدنى (Staff)</label><input type="number" value={config.minStaffOnlyCount} onChange={(e) => setConfigAndSync({...config, minStaffOnlyCount: parseInt(e.target.value)})} className="w-24 p-3 border rounded-lg font-bold text-center"/></div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-sm font-medium text-slate-700 mb-2">الحد الأدنى (Staff)</label><input type="number" value={config.minStaffOnlyCount} onChange={(e) => setConfigAndSync({...config, minStaffOnlyCount: parseInt(e.target.value)})} className="w-full p-3 border rounded-lg font-bold text-center"/></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-2">السنيور (A/B) المطلوب</label><input type="number" value={config.minSeniorCount || 1} onChange={(e) => setConfigAndSync({...config, minSeniorCount: parseInt(e.target.value)})} className="w-full p-3 border rounded-lg font-bold text-center bg-indigo-50 text-indigo-900"/></div>
+                            </div>
                         </div>
                     </div>
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6">
@@ -583,7 +576,6 @@ const App = () => {
           </div>
         )}
 
-        {/* باقي التابات (الفريق، الجدول، تواصل) كما هي */}
         {activeTab === 'staff' && (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
              <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border">
@@ -596,6 +588,10 @@ const App = () => {
                       <button onClick={() => removeStaff(staff.id)} className="absolute top-4 left-4 text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الاسم</label><input type="text" value={staff.name} onChange={(e) => updateStaff(staff.id, 'name', e.target.value)} className="w-full border-b-2 focus:border-indigo-500 outline-none font-bold"/></div>
+                         
+                         {/* NEW GRADE SELECTOR */}
+                         <div><label className="text-xs font-bold text-slate-500 block mb-1">الدرجة (Grade)</label><select value={staff.grade} onChange={(e) => updateStaff(staff.id, 'grade', e.target.value)} className="w-full border rounded p-1 text-sm font-bold bg-slate-50">{grades.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+                         
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدور</label><select value={staff.role} onChange={(e) => updateStaff(staff.id, 'role', e.target.value)} className="w-full border rounded p-1 text-sm">{roles.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">Target</label><input type="number" value={staff.targetShifts} onChange={(e) => updateStaff(staff.id, 'targetShifts', parseInt(e.target.value))} className="w-16 border rounded text-center text-sm"/></div>
                          <div>
@@ -613,6 +609,7 @@ const App = () => {
           </div>
         )}
 
+        {/* باقي التابات (roster, contact) كما هي */}
         {activeTab === 'roster' && (
            <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6">
               <div className="bg-white p-5 rounded-xl shadow-sm border overflow-x-auto print:border-none print:shadow-none">
