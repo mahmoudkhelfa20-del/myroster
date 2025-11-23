@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -20,7 +20,6 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// تأكد من أن هذا الـ UID مطابق لحسابك كأدمن
 const ADMIN_UID = "lpHTOe8uAzbf8MNnX6SGw6W7B5h1"; 
 
 const App = () => {
@@ -46,7 +45,6 @@ const App = () => {
   const [authMode, setAuthMode] = useState('login');
   const [authError, setAuthError] = useState(null);
   
-  // State للعجز
   const [shortageWarnings, setShortageWarnings] = useState([]);
 
   const defaultInitialConfig = {
@@ -63,7 +61,6 @@ const App = () => {
   };
 
   const defaultInitialStaff = [
-    // تم إضافة cycleWorkDays و cycleOffDays هنا
     { id: 1, staffId: '101', name: 'أحمد محمد', gender: 'M', role: 'Charge', pos: 'CN', grade: 'A', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] },
     { id: 2, staffId: '102', name: 'سارة علي', gender: 'F', role: 'Staff', pos: 'SN', grade: 'B', preference: 'scattered', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] }, 
   ];
@@ -257,7 +254,6 @@ const App = () => {
       } 
   };
 
-  // --- 1. منطق التوزيع المحسن (مع دعم السايكل القوية) ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
@@ -282,16 +278,13 @@ const App = () => {
           if (staff.vacationDays.includes(dayIndex)) return false;
           if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false;
           
-          // === إضافة منطق السايكل (Strict Modulo) ===
           if (staff.preference === 'cycle') {
              const work = staff.cycleWorkDays || 5;
              const off = staff.cycleOffDays || 4;
              const cycleLen = work + off;
-             // معادلة رياضية لتحديد الأيام بدقة
              const dayInCycle = (dayIndex + staff.id) % cycleLen; 
-             if (dayInCycle >= work) return false; // هذا يوم راحة إجباري
+             if (dayInCycle >= work) return false; 
           }
-          // =========================================
 
           if (state.consecutiveWorkDays >= config.maxConsecutiveWork) return false;
           if (!config.allowDoubleShift && state.lastShift === 'N' && shift.code === 'D') return false;
@@ -304,7 +297,7 @@ const App = () => {
         const scoreStaff = (staff) => { 
             const state = staffState[staff.id];
             let score = (staff.targetShifts - state.totalShifts) * 10;
-            if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 50; // أولوية قصوى لإكمال السايكل
+            if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 50;
             if (staff.grade === 'A') score += 2;
             if (config.shiftSystem === '12h') {
                 const pref = staff.shiftPreference || 'auto';
@@ -380,13 +373,35 @@ const App = () => {
       newRoster.push({ dayIndex, dateInfo, shifts: dailyShifts });
     }
 
+    // === NURSE AID SPECIAL LOGIC (Extra Shifts for Targets) ===
+    const nurseAids = staffList.filter(s => s.role === 'Nurse Aid');
+    nurseAids.forEach(aid => {
+        if (staffState[aid.id].totalShifts < aid.targetShifts) {
+            for (let r of newRoster) {
+                if (staffState[aid.id].totalShifts >= aid.targetShifts) break;
+                const dayOfWeek = r.dateInfo.dateObj.getDay();
+                // Logic: If Sunday (0) or Monday (1), try to add as Extra
+                if (dayOfWeek === 0 || dayOfWeek === 1) {
+                    const isWorking = Object.values(r.shifts).flat().some(s => s.id === aid.id);
+                    if (!isWorking) {
+                        const dayShiftCode = config.shiftSystem === '12h' ? 'D' : 'M';
+                        if (r.shifts[dayShiftCode]) {
+                            r.shifts[dayShiftCode].push({ ...aid, assignedRole: 'Nurse Aid (Extra)' });
+                            staffState[aid.id].totalShifts += 1;
+                        }
+                    }
+                }
+            }
+        }
+    });
+    // ===========================================================
+
     setRosterAndSync(newRoster); 
     setStaffStats(staffState); 
     setShortageWarnings(currentShortages);
     setActiveTab('roster');
   };
 
-  // --- 2. دالة التعديل اليدوي (Manual Override) ---
   const toggleShiftCell = (dayIndex, staffId) => {
     if (!isPremium) {
        alert("التعديل اليدوي متاح في النسخة المدفوعة فقط.");
@@ -404,16 +419,13 @@ const App = () => {
       if (!staffMember) return;
 
       if (isDay) {
-        // Switch Day -> Night
         if (dayData.shifts['D']) dayData.shifts['D'] = dayData.shifts['D'].filter(s => s.id !== staffId);
         if (dayData.shifts['M']) dayData.shifts['M'] = dayData.shifts['M'].filter(s => s.id !== staffId);
         if (!dayData.shifts['N']) dayData.shifts['N'] = [];
         dayData.shifts['N'].push({ ...staffMember, assignedRole: 'Manual' });
       } else if (isNight) {
-        // Switch Night -> Off
         if (dayData.shifts['N']) dayData.shifts['N'] = dayData.shifts['N'].filter(s => s.id !== staffId);
       } else {
-        // Switch Off -> Day
         const code = config.shiftSystem === '12h' ? 'D' : 'M';
         if (!dayData.shifts[code]) dayData.shifts[code] = [];
         dayData.shifts[code].push({ ...staffMember, assignedRole: 'Manual' });
@@ -422,10 +434,8 @@ const App = () => {
     }
   };
 
-  // --- 3. دالة تصدير الإكسل الملون (HTML Based) ---
   const exportToExcel = () => {
     if (!isPremium) { setShowPaymentModal(true); return; }
-    
     const table = document.getElementById("roster-table-export");
     if (!table) return;
 
@@ -592,6 +602,12 @@ const App = () => {
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6">
                         <h4 className="text-sm font-bold text-slate-400 uppercase mb-4">قواعد الراحة والـ Cycle</h4>
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 space-y-3">
+                             {/* Added Medication Toggle Here */}
+                             <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer">
+                                <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-500"></span><span className="text-sm font-bold text-slate-700">تفعيل Medication Nurse</span></div>
+                                <input type="checkbox" checked={config.requireMedicationNurse} onChange={(e) => setConfigAndSync({...config, requireMedicationNurse: e.target.checked})} className="w-5 h-5 accent-purple-600"/>
+                             </label>
+                             <hr />
                              <div><label className="block text-xs font-bold text-slate-500 mb-1">أقصى أيام شغل متصل (Max Work)</label><input type="number" value={config.maxConsecutiveWork} onChange={(e) => setConfigAndSync({...config, maxConsecutiveWork: parseInt(e.target.value)})} className="w-full p-2 border rounded text-center font-bold bg-white"/></div>
                              <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer"><div><span className="text-sm font-medium block">سماح بـ Night ثم Day</span></div><input type="checkbox" checked={config.allowDoubleShift} onChange={(e) => setConfigAndSync({...config, allowDoubleShift: e.target.checked})} className="w-5 h-5"/></label>
                         </div>
@@ -627,7 +643,6 @@ const App = () => {
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدرجة (Grade)</label><select value={staff.grade} onChange={(e) => updateStaff(staff.id, 'grade', e.target.value)} className="w-full border rounded p-1 text-sm font-bold bg-slate-50">{grades.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدور</label><select value={staff.role} onChange={(e) => updateStaff(staff.id, 'role', e.target.value)} className="w-full border rounded p-1 text-sm">{roles.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
                          
-                         {/* خانات السايكل (Cycle) الجديدة */}
                          {staff.preference === 'cycle' && (
                              <div className="col-span-2 bg-blue-50 p-2 rounded flex gap-2 items-center border border-blue-200 justify-center">
                                 <span className="text-[10px] font-bold text-blue-800">السايكل:</span>
@@ -648,7 +663,6 @@ const App = () => {
         {activeTab === 'roster' && (
            <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6">
               <div className="bg-white p-5 rounded-xl shadow-sm border overflow-x-auto print:border-none print:shadow-none print:p-0">
-                 {/* تنبيهات العجز */}
                  {shortageWarnings.length > 0 && (
                      <div className="mb-6 bg-rose-50 border-l-4 border-rose-500 p-4 rounded-r-lg print:hidden">
                          <div className="flex items-center gap-2 text-rose-700 font-bold mb-2"><AlertTriangle className="w-6 h-6" /><h3>تنبيه: يوجد عجز في بعض الأيام!</h3></div>
