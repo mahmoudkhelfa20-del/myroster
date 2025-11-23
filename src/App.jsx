@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent, RefreshCw
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -287,6 +287,7 @@ const App = () => {
       let newData = { [field]: value };
       if (field === 'role') {
           if (value === 'Charge') { newData.pos = 'CN'; } 
+          // --- هنا التعديل: الـ Staff (Not Released) بياخد SN عادي ---
           else if (value === 'Staff' || value === 'Staff (Not Released)' || value === 'Medication') { newData.pos = 'SN'; } 
           else if (value.includes('Intern')) { newData.pos = 'INT'; } 
           else if (value === 'Nurse Aid') { newData.pos = 'NA'; }
@@ -365,7 +366,6 @@ const App = () => {
             if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 50;
             if (staff.grade === 'A') score += 2;
             
-            // NA Priority Rule
             if (staff.role === 'Nurse Aid') {
                 const isTargetDeficient = state.totalShifts < staff.targetShifts;
                 const isDayShift = shift.code === 'D' || shift.code === 'M';
@@ -683,6 +683,23 @@ const App = () => {
                 <div><h4 className="font-bold text-indigo-900 text-sm">كود الحساب (User ID)</h4><p className="text-xs text-indigo-600 mt-1 font-mono select-all">{userId || "غير مسجل"}</p></div>
                 <button onClick={() => {navigator.clipboard.writeText(userId); alert("تم النسخ!");}} className="text-indigo-600 hover:bg-indigo-100 p-2 rounded-full"><Copy className="w-5 h-5"/></button>
              </div>
+             {/* زرار الطوارئ لإظهار الأسماء الجديدة */}
+             <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                <h4 className="text-sm font-bold text-red-700 mb-2">إدارة البيانات (هام جداً)</h4>
+                <p className="text-xs text-red-500 mb-3">اضغط هنا فقط إذا كنت تريد استبدال القائمة الحالية بالأسماء الأصلية الموجودة في الكود.</p>
+                <button 
+                    onClick={() => {
+                        if(window.confirm("هل أنت متأكد؟ سيتم مسح الفريق الحالي واستبداله بالأسماء الـ 42 الأصلية.")) {
+                            setStaffListAndSync(defaultInitialStaff);
+                            alert("تم استعادة القائمة بنجاح! تفقد تبويب الفريق.");
+                        }
+                    }}
+                    className="w-full bg-white text-red-600 py-2 rounded border border-red-300 hover:bg-red-100 font-bold flex items-center justify-center gap-2"
+                >
+                    <RefreshCw className="w-4 h-4"/> استعادة القائمة الأصلية (Force Reset)
+                </button>
+             </div>
+
              {isAdmin && (
                  <div className="bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 overflow-hidden">
                      <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2"><ShieldCheck className="text-emerald-400"/><h3 className="font-bold text-lg">لوحة تحكم الأدمن</h3></div>
