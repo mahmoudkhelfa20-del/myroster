@@ -5,12 +5,10 @@ import {
   Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck
 } from 'lucide-react';
 
-// 1. Firebase Imports
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 
-// 2. Firebase Configuration
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDYfEuKC2x15joIBS082can9w0jdy_6_-0", 
   authDomain: "roster-maker-app.firebaseapp.com",
@@ -18,15 +16,12 @@ const firebaseConfig = {
   storageBucket: "roster-maker-app.firebasestorage.app",
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// --- إعدادات الأدمن ---
 const ADMIN_UID = "lpHTOe8uAzbf8MNnX6SGw6W7B5h1"; 
 
-// --- START OF APP COMPONENT ---
 const App = () => {
   const [activeTab, setActiveTab] = useState('staff');
   const [userId, setUserId] = useState(null);
@@ -35,7 +30,6 @@ const App = () => {
   const [expiryDate, setExpiryDate] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // Admin State
   const isAdmin = userId === ADMIN_UID;
   const [targetUserUid, setTargetUserUid] = useState(""); 
   const [paymentInfo, setPaymentInfo] = useState({
@@ -45,13 +39,11 @@ const App = () => {
     whatsapp: "201205677601"
   });
 
-  // Modals State
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [authMode, setAuthMode] = useState('login');
   const [authError, setAuthError] = useState(null);
   
-  // Data States
   const defaultInitialConfig = {
     shiftSystem: '12h', allowDayAfterNight: false, requireMedicationNurse: true, allowMultipleCharge: false,
     minStaffOnlyCount: 3, minSeniorCount: 1,
@@ -59,9 +51,10 @@ const App = () => {
     hospitalName: "", hospitalLogo: null
   };
 
+  // أضفنا ID و Gender و Position Abbreviation
   const defaultInitialStaff = [
-    { id: 1, name: 'أحمد محمد', role: 'Charge', grade: 'A', preference: 'cycle', shiftPreference: 'auto', maxConsecutive: 3, targetShifts: 15, vacationDays: [] },
-    { id: 2, name: 'سارة علي', role: 'Staff', grade: 'B', preference: 'scattered', shiftPreference: 'auto', maxConsecutive: 4, targetShifts: 15, vacationDays: [] }, 
+    { id: 1, staffId: '101', name: 'أحمد محمد', gender: 'M', role: 'Charge', pos: 'CN', grade: 'A', preference: 'cycle', shiftPreference: 'auto', maxConsecutive: 3, targetShifts: 15, vacationDays: [] },
+    { id: 2, staffId: '102', name: 'سارة علي', gender: 'F', role: 'Staff', pos: 'SN', grade: 'B', preference: 'scattered', shiftPreference: 'auto', maxConsecutive: 4, targetShifts: 15, vacationDays: [] }, 
   ];
 
   const [config, setConfig] = useState(defaultInitialConfig); 
@@ -70,8 +63,9 @@ const App = () => {
   const [logs, setLogs] = useState([]);
   const [staffStats, setStaffStats] = useState({});
 
-  // --- Helpers ---
   const months = [ "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر" ];
+  // English months for the Excel Header
+  const enMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
   const getDateFromIndex = (index) => { 
     if (!config) return new Date();
@@ -80,17 +74,17 @@ const App = () => {
     return date;
   };
 
-  const formatDate = (date) => { return `${date.getDate()}/${date.getMonth() + 1}`; };
-  const getDayLetter = (date) => { 
-    const letters = ['ح', 'ن', 'ث', 'ر', 'خ', 'ج', 'س']; 
-    return letters[date.getDay()];
-  };
-
+  const formatDate = (date) => { return `${date.getDate()}`; }; // Just number for Excel style
+  
   const getFullDateLabel = (index) => {
     const date = getDateFromIndex(index);
+    const dayNamesEn = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     return {
-      dateObj: date, str: formatDate(date), dayNum: date.getDate(), dayName: ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'][date.getDay()],
-      dayLetter: getDayLetter(date), isWeekend: date.getDay() === 5 || date.getDay() === 6 
+      dateObj: date, 
+      str: formatDate(date), 
+      dayNum: date.getDate(), 
+      dayName: dayNamesEn[date.getDay()], 
+      isWeekend: date.getDay() === 5 // Friday (Orange highlight)
     };
   };
 
@@ -148,16 +142,11 @@ const App = () => {
         setConfig(data.config || defaultInitialConfig);
         setStaffList(data.staffList || defaultInitialStaff);
         setRoster(data.roster || []);
-        
         if (data.subscriptionEndDate) {
             const now = new Date();
             const expiry = new Date(data.subscriptionEndDate);
-            if (expiry > now) {
-                setIsPremium(true);
-                setExpiryDate(data.subscriptionEndDate);
-            } else { setIsPremium(false); }
+            if (expiry > now) { setIsPremium(true); setExpiryDate(data.subscriptionEndDate); } else { setIsPremium(false); }
         } else { setIsPremium(data.isPremium === true); }
-
       } else {
         await setDoc(docRef, { config: defaultInitialConfig, staffList: defaultInitialStaff, roster: [], isPremium: false });
         setConfig(defaultInitialConfig); setStaffList(defaultInitialStaff);
@@ -167,12 +156,9 @@ const App = () => {
     return () => unsubscribe();
   }, [userId]);
 
-  // --- SYNC & ACTIONS ---
   const updateFirestore = async (newConfig = config, newStaffList = staffList, newRoster = roster) => {
     if (!userId || !config || !staffList) return; 
-    try {
-      await setDoc(doc(db, "rosters", userId), { config: newConfig, staffList: newStaffList, roster: newRoster }, { merge: true });
-    } catch (e) { console.error(e); }
+    try { await setDoc(doc(db, "rosters", userId), { config: newConfig, staffList: newStaffList, roster: newRoster }, { merge: true }); } catch (e) { console.error(e); }
   };
 
   const updateAdminSettings = async () => {
@@ -190,10 +176,7 @@ const App = () => {
       nextYear.setFullYear(nextYear.getFullYear() + 1);
       const expiryString = nextYear.toISOString().split('T')[0];
       if(window.confirm(`تفعيل للمستخدم ${targetUserUid} حتى ${expiryString}؟`)) {
-          try {
-              await updateDoc(doc(db, "rosters", targetUserUid), { subscriptionEndDate: expiryString, isPremium: true });
-              alert(`تم التفعيل! ينتهي: ${expiryString}`); setTargetUserUid("");
-          } catch (e) { alert("فشل التفعيل: " + e.message); }
+          try { await updateDoc(doc(db, "rosters", targetUserUid), { subscriptionEndDate: expiryString, isPremium: true }); alert(`تم التفعيل!`); setTargetUserUid(""); } catch (e) { alert("فشل التفعيل: " + e.message); }
       }
   };
 
@@ -204,7 +187,7 @@ const App = () => {
   const handleLogoUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-        if (file.size > 500000) { alert("حجم الصورة كبير! اختر أقل من 500KB"); return; }
+        if (file.size > 500000) { alert("حجم كبير!"); return; }
         const reader = new FileReader();
         reader.onloadend = () => { setConfigAndSync({...config, hospitalLogo: reader.result}); };
         reader.readAsDataURL(file);
@@ -214,12 +197,25 @@ const App = () => {
   const addStaff = () => {
     if (!isPremium && staffList.length >= 5) { alert("عفواً، النسخة المجانية تدعم 5 ممرضين فقط."); setShowPaymentModal(true); return; }
     const newId = staffList.length > 0 ? Math.max(...staffList.map(s => s.id)) + 1 : 1;
-    const defaultTarget = config.shiftSystem === '12h' ? 15 : config.shiftSystem === '24h' ? 10 : 22;
-    setStaffListAndSync([...staffList, { id: newId, name: 'ممرض جديد', role: 'Staff', grade: 'C', preference: 'cycle', shiftPreference: 'auto', maxConsecutive: 3, targetShifts: defaultTarget, vacationDays: [] }]);
+    const defaultPos = 'SN'; 
+    setStaffListAndSync([...staffList, { 
+        id: newId, staffId: '', name: 'ممرض جديد', gender: 'F', role: 'Staff', pos: defaultPos, grade: 'C', 
+        preference: 'cycle', shiftPreference: 'auto', maxConsecutive: 3, targetShifts: 15, vacationDays: [] 
+    }]);
   };
 
   const removeStaff = (id) => setStaffListAndSync(staffList.filter(s => s.id !== id));
-  const updateStaff = (id, field, value) => setStaffListAndSync(staffList.map(s => s.id === id ? { ...s, [field]: value } : s));
+  const updateStaff = (id, field, value) => {
+      let newData = { [field]: value };
+      // Auto update POS
+      if (field === 'role') {
+          if (value === 'Charge') newData.pos = 'CN';
+          else if (value === 'Staff') newData.pos = 'SN';
+          else if (value.includes('Intern')) newData.pos = 'INT';
+          else if (value === 'Nurse Aid') newData.pos = 'NA';
+      }
+      setStaffListAndSync(staffList.map(s => s.id === id ? { ...s, ...newData } : s));
+  };
   const toggleVacationDay = (staffId, dayIndex) => {
     const staff = staffList.find(s => s.id === staffId);
     let newVacations = staff.vacationDays.includes(dayIndex) ? staff.vacationDays.filter(d => d !== dayIndex) : [...staff.vacationDays, dayIndex];
@@ -227,7 +223,6 @@ const App = () => {
   };
   const resetRoster = () => { if(window.confirm("هل أنت متأكد؟")) { setRosterAndSync([]); setLogs([]); setStaffStats({}); } };
 
-  // --- 🧠 خوارزمية التوزيع الذكية (مع التفضيلات) ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
@@ -241,11 +236,8 @@ const App = () => {
       let dailyShifts = {};
       shiftTypes.forEach(shift => {
         let assignedShiftStaff = []; 
-        let needCharge = 1; 
-        let needMed = config.requireMedicationNurse ? 1 : 0; 
-        let needStaff = config.minStaffOnlyCount; 
-        let needAid = 1;
-        let needSeniors = config.minSeniorCount || 1;
+        let needCharge = 1; let needMed = config.requireMedicationNurse ? 1 : 0; let needStaff = config.minStaffOnlyCount; 
+        let needAid = 1; let needSeniors = config.minSeniorCount || 1;
 
         const isAvailable = (staff) => {
           const state = staffState[staff.id];
@@ -258,77 +250,50 @@ const App = () => {
         };
 
         let candidates = staffList.filter(s => isAvailable(s));
-        
-        // --- نظام النقاط (Scoring System) ---
         const scoreStaff = (staff) => { 
           let score = (staff.targetShifts - (staffState[staff.id].totalShifts || 0)) * 10;
           if (staff.preference === 'cycle' && staffState[staff.id].consecutiveDays > 0) score += 5;
           if (staff.grade === 'A') score += 2;
-
-          // ⭐️ منطق تفضيلات الشيفتات (12 ساعة) ⭐️
           if (config.shiftSystem === '12h') {
               const pref = staff.shiftPreference || 'auto';
               const isDayShift = shift.code === 'D';
-              
-              if (pref === 'all_day') {
-                  if (isDayShift) score += 100; else score -= 1000; // عقاب شديد للنايت
-              } else if (pref === 'all_night') {
-                  if (!isDayShift) score += 100; else score -= 1000; // عقاب شديد للداي
-              } else if (pref === 'mostly_day') {
-                  if (isDayShift) score += 20; else score -= 20;
-              } else if (pref === 'mostly_night') {
-                  if (!isDayShift) score += 20; else score -= 20;
-              }
+              if (pref === 'all_day') { if (isDayShift) score += 100; else score -= 1000; }
+              else if (pref === 'all_night') { if (!isDayShift) score += 100; else score -= 1000; }
+              else if (pref === 'mostly_day') { if (isDayShift) score += 20; else score -= 20; }
+              else if (pref === 'mostly_night') { if (!isDayShift) score += 20; else score -= 20; }
           }
-          
           return score;
         };
         candidates.sort((a, b) => scoreStaff(b) - scoreStaff(a));
 
-        // 1. Charge
         let chargeNurse = candidates.find(s => s.role === 'Charge');
-        if (!chargeNurse && candidates.length > 0) { 
-            chargeNurse = candidates.find(s => isCountable(s.role) && isSenior(s.grade));
-        }
+        if (!chargeNurse && candidates.length > 0) chargeNurse = candidates.find(s => isCountable(s.role) && isSenior(s.grade));
         if (chargeNurse) assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' });
 
-        // 2. Nurse Aid
         if (needAid > 0) {
             const aid = candidates.find(s => s.role === 'Nurse Aid' && !assignedShiftStaff.some(a => a.id === s.id));
             if (aid) assignedShiftStaff.push({ ...aid, assignedRole: 'Nurse Aid' });
         }
 
-        // 3. Medication
         if (needMed > 0) {
           const medNurse = candidates.find(s => s.role === 'Medication' && !assignedShiftStaff.some(a => a.id === s.id));
           if (medNurse) assignedShiftStaff.push({ ...medNurse, assignedRole: 'Medication' });
         }
 
-        // 4. Senior Check
         let currentSeniors = assignedShiftStaff.filter(s => isSenior(s.grade)).length;
         while (currentSeniors < needSeniors) {
             const seniorCandidate = candidates.find(s => !assignedShiftStaff.some(a => a.id === s.id) && isCountable(s.role) && isSenior(s.grade));
-            if (seniorCandidate) {
-                assignedShiftStaff.push({ ...seniorCandidate, assignedRole: 'Staff (Senior)' });
-                currentSeniors++;
-            } else { break; }
+            if (seniorCandidate) { assignedShiftStaff.push({ ...seniorCandidate, assignedRole: 'Staff (Senior)' }); currentSeniors++; } else { break; }
         }
 
-        // 5. Complete Staff Count
         let currentCountable = assignedShiftStaff.filter(s => isCountable(s.role)).length;
         while (currentCountable < needStaff) {
           const nextStaff = candidates.find(s => !assignedShiftStaff.some(a => a.id === s.id) && isCountable(s.role));
-          if (nextStaff) {
-              assignedShiftStaff.push({ ...nextStaff, assignedRole: 'Staff' });
-              currentCountable++;
-          } else { break; }
+          if (nextStaff) { assignedShiftStaff.push({ ...nextStaff, assignedRole: 'Staff' }); currentCountable++; } else { break; }
         }
 
-        // 6. Intern (Not Released)
         const internsNotReleased = candidates.filter(s => s.role === 'Intern (Not Released)' && !assignedShiftStaff.some(a => a.id === s.id) && staffState[s.id].totalShifts < s.targetShifts);
-        if (internsNotReleased.length > 0) {
-            assignedShiftStaff.push({ ...internsNotReleased[0], assignedRole: 'Intern (Training)' });
-        }
+        if (internsNotReleased.length > 0) assignedShiftStaff.push({ ...internsNotReleased[0], assignedRole: 'Intern (Training)' });
 
         assignedShiftStaff.forEach(s => { staffState[s.id].lastShift = shift.code; staffState[s.id].consecutiveDays += 1; staffState[s.id].totalShifts += 1; });
         const workedIds = assignedShiftStaff.map(s => s.id);
@@ -338,7 +303,6 @@ const App = () => {
       newRoster.push({ dayIndex, dateInfo, shifts: dailyShifts });
     }
 
-    // Post-Process for Nurse Aid Overflow
     const nurseAids = staffList.filter(s => s.role === 'Nurse Aid');
     nurseAids.forEach(aid => {
         if (staffState[aid.id].totalShifts < aid.targetShifts) {
@@ -349,35 +313,43 @@ const App = () => {
                     const isWorking = Object.values(r.shifts).flat().some(s => s.id === aid.id);
                     if (!isWorking) {
                         const dayShiftCode = config.shiftSystem === '12h' ? 'D' : 'M';
-                        if (r.shifts[dayShiftCode]) {
-                            r.shifts[dayShiftCode].push({ ...aid, assignedRole: 'Nurse Aid (Extra)' });
-                            staffState[aid.id].totalShifts += 1;
-                        }
+                        if (r.shifts[dayShiftCode]) { r.shifts[dayShiftCode].push({ ...aid, assignedRole: 'Nurse Aid (Extra)' }); staffState[aid.id].totalShifts += 1; }
                     }
                 }
             }
         }
     });
-
     setRosterAndSync(newRoster); setLogs(generationLogs); setStaffStats(staffState); setActiveTab('roster');
   };
 
   const handlePremiumFeature = (action) => { if (isPremium) action(); else setShowPaymentModal(true); };
-
+  
+  // CSV EXPORT WITH NEW FIELDS
   const exportRosterToCSV = () => {
     if (roster.length === 0) { alert("الجدول فارغ!"); return; }
     const shiftTypes = getShiftsForSystem(config.shiftSystem).map(s => s.label);
-    let csvContent = `التاريخ,اليوم,${shiftTypes.join(',')}\n`;
-    roster.forEach(row => {
-      let rowData = `${row.dateInfo.str},${row.dateInfo.dayName}`;
-      shiftTypes.forEach(label => {
-        const shiftCode = getShiftsForSystem(config.shiftSystem).find(s => s.label === label).code;
-        const assigned = row.shifts[shiftCode] || [];
-        const staffString = assigned.map(s => `${s.name} (${s.assignedRole})`).join(' / ');
-        rowData += `,"${staffString}"`;
-      });
-      csvContent += rowData + '\n';
+    // Updated Header
+    let csvContent = `NO,STAFF NAME,POS,ID,LEVEL,G,${roster.map(r => r.dateInfo.str).join(',')},Total D, Total N, Total\n`;
+    
+    staffList.forEach((staff, idx) => {
+        const stats = { D: 0, N: 0 };
+        let rowData = `${idx+1},"${staff.name}",${staff.pos || ''},${staff.staffId || ''},${staff.grade || ''},${staff.gender || ''}`;
+        
+        // Days
+        roster.forEach(r => {
+            const isDay = r.shifts['D']?.some(s => s.id === staff.id) || r.shifts['M']?.some(s => s.id === staff.id);
+            const isNight = r.shifts['N']?.some(s => s.id === staff.id);
+            
+            if (isDay) stats.D++;
+            if (isNight) stats.N++;
+            rowData += `,${isDay ? 'D' : isNight ? 'N' : 'X'}`;
+        });
+
+        // Totals
+        rowData += `,${stats.D},${stats.N},${stats.D + stats.N}`;
+        csvContent += rowData + '\n';
     });
+
     const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -389,7 +361,6 @@ const App = () => {
   };
 
   const exportRosterToPDF = () => { window.print(); };
-
   const handleAuthSubmit = async (e, mode) => {
     e.preventDefault();
     setAuthError(null);
@@ -400,13 +371,9 @@ const App = () => {
     } catch (error) { setAuthError("فشل العملية: " + error.message); }
   };
 
-  // --- RENDERERS ---
   const renderLoading = () => (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-      <div className="text-center py-10 animate-pulse">
-        <div className="border-t-4 border-indigo-500 border-solid rounded-full w-12 h-12 mx-auto mb-4 animate-spin"></div>
-        <p className="text-indigo-600 font-bold">جاري الاتصال بالسحابة...</p>
-      </div>
+      <div className="text-center py-10 animate-pulse"><div className="border-t-4 border-indigo-500 border-solid rounded-full w-12 h-12 mx-auto mb-4 animate-spin"></div><p className="text-indigo-600 font-bold">جاري الاتصال بالسحابة...</p></div>
       <button onClick={() => { signOut(auth); window.location.reload(); }} className="mt-4 text-xs text-slate-400 underline hover:text-red-500">هل استغرق الأمر وقتاً طويلاً؟ اضغط هنا لإعادة التعيين</button>
     </div>
   );
@@ -450,23 +417,23 @@ const App = () => {
   if (loading || config === null || staffList === null) { return renderLoading(); }
   
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-700" dir="rtl">
+    <div className="min-h-screen bg-white font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-700 overflow-x-auto" dir="rtl">
       {showAuthModal && renderAuthModal()}
       {showPaymentModal && renderPaymentModal()}
       
-      <div className="hidden print:block p-8 border-b-2 border-slate-800 mb-6">
-         <div className="flex justify-between items-center">
-            <div className="flex items-center gap-4">
-               {config.hospitalLogo ? (<img src={config.hospitalLogo} className="h-24 w-auto object-contain" alt="Logo"/>) : (<Activity className="w-16 h-16 text-slate-800" />)}
-               <div>
-                  <h1 className="text-4xl font-black text-slate-900">{config.hospitalName || "ROSTER MAKER"}</h1>
-                  <p className="text-xl text-slate-600 mt-1">جدول نوبتجيات التمريض - شهر {months[config.month]} {config.year}</p>
-               </div>
-            </div>
-            <div className="text-left text-sm text-slate-500"><p>تم الإنشاء بواسطة Roster Maker</p><p>{new Date().toLocaleDateString()}</p></div>
+      {/* --- EXCEL STYLE ROSTER (PRINT & VIEW) --- */}
+      <div className="hidden print:block bg-white">
+         {/* Header Table - Styled exactly like Excel */}
+         <div className="border-2 border-black mb-1 text-center">
+             <div className="bg-blue-200 p-1 border-b border-black font-bold text-sm">Monthly Duty Roster ({months[config.month]} {config.year})</div>
+             <div className="flex items-center p-2 gap-4 justify-center">
+                 {config.hospitalLogo && <img src={config.hospitalLogo} className="h-12" alt="logo"/>}
+                 <h1 className="font-bold text-xl">{config.hospitalName || "HOSPITAL NAME"}</h1>
+             </div>
          </div>
       </div>
 
+      {/* --- APP HEADER (Hidden on Print) --- */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm backdrop-blur-md bg-opacity-95 print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-20 items-center">
@@ -482,32 +449,23 @@ const App = () => {
               </div>
             </div>
             <div className="flex items-center gap-3 md:gap-6">
-              <button onClick={userEmail ? () => signOut(auth) : () => setShowAuthModal(true)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${userEmail ? 'bg-rose-100 text-rose-600' : 'bg-indigo-100 text-indigo-600'}`}>
-                  {userEmail ? <LogOut className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
-                  {userEmail ? 'خروج' : 'دخول'}
-              </button>
+              <button onClick={userEmail ? () => signOut(auth) : () => setShowAuthModal(true)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${userEmail ? 'bg-rose-100 text-rose-600' : 'bg-indigo-100 text-indigo-600'}`}>{userEmail ? <LogOut className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}{userEmail ? 'خروج' : 'دخول'}</button>
               <div className="hidden md:flex bg-slate-100 p-1 rounded-xl">
                  {[ {id:'staff', icon:Users, label:'الفريق'}, {id:'settings', icon:UserCog, label:'الإعدادات'}, {id:'roster', icon:Calendar, label:'الجدول'}, {id:'contact', icon:MessageCircle, label:'تواصل'} ].map(tab => (
-                  <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                    <tab.icon className={`w-4 h-4 ml-2 ${activeTab === tab.id ? 'text-indigo-600' : 'text-slate-400'}`} /> {tab.label}
-                  </button>
+                  <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><tab.icon className={`w-4 h-4 ml-2 ${activeTab === tab.id ? 'text-indigo-600' : 'text-slate-400'}`} /> {tab.label}</button>
                 ))}
               </div>
-              <button onClick={() => { setActiveTab('roster'); generateRoster(); }} className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-4 md:px-6 py-2.5 rounded-full font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2 group">
-                <div className="bg-white/20 p-1 rounded-full group-hover:bg-white/30 transition-colors"><Play className="w-4 h-4 fill-current" /></div>
-                <span className="hidden sm:inline">توزيع</span>
-              </button>
+              <button onClick={() => { setActiveTab('roster'); generateRoster(); }} className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-4 md:px-6 py-2.5 rounded-full font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2 group"><div className="bg-white/20 p-1 rounded-full group-hover:bg-white/30 transition-colors"><Play className="w-4 h-4 fill-current" /></div><span className="hidden sm:inline">توزيع</span></button>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24">
+      <main className="max-w-[98%] mx-auto px-2 py-4 pb-24">
+        {/* Mobile Tabs */}
         <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide print:hidden">
             {[ {id:'staff', icon:Users, label:'الفريق'}, {id:'settings', icon:UserCog, label:'الإعدادات'}, {id:'roster', icon:Calendar, label:'الجدول'}, {id:'contact', icon:MessageCircle, label:'تواصل'} ].map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-shrink-0 flex items-center px-4 py-2 rounded-full text-sm font-bold transition-all border ${activeTab === tab.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200'}`}>
-                <tab.icon className="w-4 h-4 ml-2" /> {tab.label}
-              </button>
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-shrink-0 flex items-center px-4 py-2 rounded-full text-sm font-bold transition-all border ${activeTab === tab.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200'}`}><tab.icon className="w-4 h-4 ml-2" /> {tab.label}</button>
             ))}
         </div>
 
@@ -517,27 +475,12 @@ const App = () => {
                 <div><h4 className="font-bold text-indigo-900 text-sm">كود الحساب (User ID)</h4><p className="text-xs text-indigo-600 mt-1 font-mono select-all">{userId || "غير مسجل"}</p></div>
                 <button onClick={() => {navigator.clipboard.writeText(userId); alert("تم النسخ!");}} className="text-indigo-600 hover:bg-indigo-100 p-2 rounded-full"><Copy className="w-5 h-5"/></button>
              </div>
-
              {isAdmin && (
                  <div className="bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 overflow-hidden">
                      <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2"><ShieldCheck className="text-emerald-400"/><h3 className="font-bold text-lg">لوحة تحكم الأدمن</h3></div>
                      <div className="p-6 space-y-6">
-                        <div className="bg-slate-700/50 p-4 rounded-lg border border-slate-600">
-                            <h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2"><UserCheck className="w-4 h-4"/> تفعيل اشتراك لمستخدم</h4>
-                            <div className="flex gap-2">
-                                <input type="text" placeholder="ضع كود المستخدم هنا (UID)" value={targetUserUid} onChange={(e) => setTargetUserUid(e.target.value)} className="flex-1 p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm"/>
-                                <button onClick={activateUserSubscription} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-sm font-bold">تفعيل سنة</button>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div><label className="block text-xs text-slate-400 mb-1">السعر</label><input type="text" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
-                            <div><label className="block text-xs text-slate-400 mb-1">رقم واتساب</label><input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div>
-                        </div>
-                        <button onClick={updateAdminSettings} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded font-bold text-sm flex items-center justify-center gap-2"><Save className="w-4 h-4"/> حفظ بيانات الدفع</button>
-                     </div>
-                 </div>
-             )}
-
+                        <div className="bg-slate-700/50 p-4 rounded-lg border border-slate-600"><h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2"><UserCheck className="w-4 h-4"/> تفعيل اشتراك لمستخدم</h4><div className="flex gap-2"><input type="text" placeholder="UID" value={targetUserUid} onChange={(e) => setTargetUserUid(e.target.value)} className="flex-1 p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm"/><button onClick={activateUserSubscription} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-sm font-bold">تفعيل سنة</button></div></div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-xs text-slate-400 mb-1">السعر</label><input type="text" value={paymentInfo.price} onChange={(e) => setPaymentInfo({...paymentInfo, price: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div><div><label className="block text-xs text-slate-400 mb-1">رقم واتساب</label><input type="text" value={paymentInfo.whatsapp} onChange={(e) => setPaymentInfo({...paymentInfo, whatsapp: e.target.value})} className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" /></div></div><button onClick={updateAdminSettings} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded font-bold text-sm flex items-center justify-center gap-2"><Save className="w-4 h-4"/> حفظ بيانات الدفع</button></div></div>)}
              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="md:col-span-2 space-y-6">
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6 space-y-4">
@@ -549,10 +492,7 @@ const App = () => {
                             </div>
                             <hr />
                             <div><label className="block text-sm font-medium text-slate-700 mb-2">النظام</label><select value={config.shiftSystem} onChange={(e) => setConfigAndSync({...config, shiftSystem: e.target.value})} className="w-full p-3 border rounded-lg"><option value="12h">12 ساعة (Day / Night)</option><option value="8h">8 ساعات (3 Shifts)</option><option value="24h">24 ساعة</option></select></div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium text-slate-700 mb-2">الحد الأدنى (Staff)</label><input type="number" value={config.minStaffOnlyCount} onChange={(e) => setConfigAndSync({...config, minStaffOnlyCount: parseInt(e.target.value)})} className="w-full p-3 border rounded-lg font-bold text-center"/></div>
-                                <div><label className="block text-sm font-medium text-slate-700 mb-2">السنيور (A/B) المطلوب</label><input type="number" value={config.minSeniorCount || 1} onChange={(e) => setConfigAndSync({...config, minSeniorCount: parseInt(e.target.value)})} className="w-full p-3 border rounded-lg font-bold text-center bg-indigo-50 text-indigo-900"/></div>
-                            </div>
+                            <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-slate-700 mb-2">الحد الأدنى (Staff)</label><input type="number" value={config.minStaffOnlyCount} onChange={(e) => setConfigAndSync({...config, minStaffOnlyCount: parseInt(e.target.value)})} className="w-full p-3 border rounded-lg font-bold text-center"/></div><div><label className="block text-sm font-medium text-slate-700 mb-2">السنيور (A/B) المطلوب</label><input type="number" value={config.minSeniorCount || 1} onChange={(e) => setConfigAndSync({...config, minSeniorCount: parseInt(e.target.value)})} className="w-full p-3 border rounded-lg font-bold text-center bg-indigo-50 text-indigo-900"/></div></div>
                         </div>
                     </div>
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6">
@@ -564,27 +504,7 @@ const App = () => {
                         </div>
                     </div>
                 </div>
-
-                <div>
-                    <div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden ${!isPremium ? 'opacity-70 pointer-events-none relative' : ''}`}>
-                        {!isPremium && <div className="absolute inset-0 flex items-center justify-center bg-slate-100/50 z-10"><span className="bg-slate-800 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1"><Lock className="w-3 h-3"/> للمشتركين فقط</span></div>}
-                        <div className="p-6 space-y-4">
-                            <h4 className="text-sm font-bold text-slate-400 uppercase flex items-center gap-2"><ImageIcon className="w-4 h-4"/> هوية المستشفى</h4>
-                            <p className="text-xs text-slate-500">أضف شعار واسم المستشفى ليظهر في الطباعة.</p>
-                            <div><label className="block text-sm font-medium text-slate-700 mb-2">اسم المستشفى / القسم</label><input type="text" placeholder="مثال: مستشفى السلام - العناية" value={config.hospitalName || ""} onChange={(e) => setConfigAndSync({...config, hospitalName: e.target.value})} className="w-full p-3 border rounded-lg"/></div>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">الشعار (Logo)</label>
-                                <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:bg-slate-50 transition-colors cursor-pointer relative">
-                                    <input type="file" accept="image/*" onChange={handleLogoUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                                    {config.hospitalLogo ? (<img src={config.hospitalLogo} className="h-20 mx-auto object-contain mb-2" alt="Logo Preview"/>) : (<Upload className="w-8 h-8 mx-auto text-slate-400 mb-2"/>)}
-                                    <span className="text-xs text-indigo-600 font-bold">اضغط لرفع صورة</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-             </div>
-          </div>
+                <div><div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden ${!isPremium ? 'opacity-70 pointer-events-none relative' : ''}`}>{!isPremium && <div className="absolute inset-0 flex items-center justify-center bg-slate-100/50 z-10"><span className="bg-slate-800 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1"><Lock className="w-3 h-3"/> للمشتركين فقط</span></div>}<div className="p-6 space-y-4"><h4 className="text-sm font-bold text-slate-400 uppercase flex items-center gap-2"><ImageIcon className="w-4 h-4"/> هوية المستشفى</h4><p className="text-xs text-slate-500">أضف شعار واسم المستشفى ليظهر في الطباعة.</p><div><label className="block text-sm font-medium text-slate-700 mb-2">اسم المستشفى / القسم</label><input type="text" placeholder="مثال: مستشفى السلام - العناية" value={config.hospitalName || ""} onChange={(e) => setConfigAndSync({...config, hospitalName: e.target.value})} className="w-full p-3 border rounded-lg"/></div><div><label className="block text-sm font-medium text-slate-700 mb-2">الشعار (Logo)</label><div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:bg-slate-50 transition-colors cursor-pointer relative"><input type="file" accept="image/*" onChange={handleLogoUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />{config.hospitalLogo ? (<img src={config.hospitalLogo} className="h-20 mx-auto object-contain mb-2" alt="Logo Preview"/>) : (<Upload className="w-8 h-8 mx-auto text-slate-400 mb-2"/>)}<span className="text-xs text-indigo-600 font-bold">اضغط لرفع صورة</span></div></div></div></div></div></div></div>
         )}
 
         {activeTab === 'staff' && (
@@ -598,33 +518,20 @@ const App = () => {
                    <div key={staff.id} className="bg-white rounded-xl shadow-sm border p-5 relative">
                       <button onClick={() => removeStaff(staff.id)} className="absolute top-4 left-4 text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                         <div><label className="text-xs font-bold text-slate-500 block mb-1">الاسم</label><input type="text" value={staff.name} onChange={(e) => updateStaff(staff.id, 'name', e.target.value)} className="w-full border-b-2 focus:border-indigo-500 outline-none font-bold"/></div>
+                         <div className="col-span-2 lg:col-span-1"><label className="text-xs font-bold text-slate-500 block mb-1">الاسم</label><input type="text" value={staff.name} onChange={(e) => updateStaff(staff.id, 'name', e.target.value)} className="w-full border-b-2 focus:border-indigo-500 outline-none font-bold"/></div>
+                         
+                         {/* Added ID, Gender, Pos */}
+                         <div className="grid grid-cols-3 gap-2">
+                             <div><label className="text-[10px] font-bold text-slate-500 block">ID</label><input type="text" value={staff.staffId || ''} onChange={(e) => updateStaff(staff.id, 'staffId', e.target.value)} className="w-full border rounded p-1 text-xs text-center"/></div>
+                             <div><label className="text-[10px] font-bold text-slate-500 block">G</label><select value={staff.gender || 'F'} onChange={(e) => updateStaff(staff.id, 'gender', e.target.value)} className="w-full border rounded p-1 text-xs text-center"><option value="M">M</option><option value="F">F</option></select></div>
+                             <div><label className="text-[10px] font-bold text-slate-500 block">POS</label><input type="text" value={staff.pos || 'SN'} onChange={(e) => updateStaff(staff.id, 'pos', e.target.value)} className="w-full border rounded p-1 text-xs text-center bg-slate-50" readOnly/></div>
+                         </div>
+
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدرجة (Grade)</label><select value={staff.grade} onChange={(e) => updateStaff(staff.id, 'grade', e.target.value)} className="w-full border rounded p-1 text-sm font-bold bg-slate-50">{grades.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدور</label><select value={staff.role} onChange={(e) => updateStaff(staff.id, 'role', e.target.value)} className="w-full border rounded p-1 text-sm">{roles.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
-                         
-                         {/* --- SHIFT PREFERENCE DROP-DOWN (NEW) --- */}
-                         {config.shiftSystem === '12h' && (
-                             <div>
-                                 <label className="text-xs font-bold text-slate-500 block mb-1">تفضيل الشفت</label>
-                                 <select value={staff.shiftPreference || 'auto'} onChange={(e) => updateStaff(staff.id, 'shiftPreference', e.target.value)} className="w-full border rounded p-1 text-sm font-bold text-indigo-700 bg-indigo-50">
-                                     <option value="auto">تلقائي (متوازن)</option>
-                                     <option value="all_day">الكل صباحي (All Day)</option>
-                                     <option value="all_night">الكل مسائي (All Night)</option>
-                                     <option value="mostly_day">الأغلب صباحي</option>
-                                     <option value="mostly_night">الأغلب مسائي</option>
-                                 </select>
-                             </div>
-                         )}
-
+                         {config.shiftSystem === '12h' && (<div><label className="text-xs font-bold text-slate-500 block mb-1">تفضيل الشفت</label><select value={staff.shiftPreference || 'auto'} onChange={(e) => updateStaff(staff.id, 'shiftPreference', e.target.value)} className="w-full border rounded p-1 text-sm font-bold text-indigo-700 bg-indigo-50"><option value="auto">تلقائي</option><option value="all_day">الكل صباحي</option><option value="all_night">الكل مسائي</option><option value="mostly_day">الأغلب صباحي</option><option value="mostly_night">الأغلب مسائي</option></select></div>)}
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">Target</label><input type="number" value={staff.targetShifts} onChange={(e) => updateStaff(staff.id, 'targetShifts', parseInt(e.target.value))} className="w-16 border rounded text-center text-sm"/></div>
-                         <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">إجازات</label>
-                            <div className="grid grid-cols-7 gap-1">
-                               {Array.from({length: config.durationDays}, (_, i) => i + 1).map(d => (
-                                  <button key={d} onClick={() => toggleVacationDay(staff.id, d)} className={`h-6 text-[9px] rounded ${staff.vacationDays.includes(d) ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-400'}`}>{d}</button>
-                               ))}
-                            </div>
-                         </div>
+                         <div className="col-span-2 lg:col-span-4"><label className="text-xs font-bold text-slate-500 block mb-1">إجازات</label><div className="grid grid-cols-10 gap-1">{Array.from({length: config.durationDays}, (_, i) => i + 1).map(d => (<button key={d} onClick={() => toggleVacationDay(staff.id, d)} className={`h-6 text-[9px] rounded ${staff.vacationDays.includes(d) ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-400'}`}>{d}</button>))}</div></div>
                       </div>
                    </div>
                 ))}
@@ -632,82 +539,96 @@ const App = () => {
           </div>
         )}
 
-        {/* باقي التابات (roster, contact) كما هي */}
         {activeTab === 'roster' && (
            <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6">
-              <div className="bg-white p-5 rounded-xl shadow-sm border overflow-x-auto print:border-none print:shadow-none">
+              <div className="bg-white p-5 rounded-xl shadow-sm border overflow-x-auto print:border-none print:shadow-none print:p-0">
+                 {/* Actions Bar (Hidden in Print) */}
                  <div className="flex justify-between mb-4 print:hidden">
-                    <h4 className="text-sm font-bold text-slate-600 flex items-center"><Activity className="w-5 h-5 ml-2 text-indigo-500"/> الإحصائيات</h4>
+                    <h4 className="text-sm font-bold text-slate-600 flex items-center"><Activity className="w-5 h-5 ml-2 text-indigo-500"/> الجدول النهائي</h4>
                     <div className="flex gap-2">
                        <button onClick={resetRoster} className="text-xs bg-slate-100 px-3 py-1 rounded hover:text-red-500 flex items-center"><RotateCcw className="w-3 h-3 ml-1"/> مسح</button>
-                       <button onClick={() => handlePremiumFeature(exportRosterToCSV)} className={`text-xs px-3 py-1 rounded flex items-center ${isPremium ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-slate-200 text-slate-500'}`}>
-                          {isPremium ? <Download className="w-3 h-3 ml-1"/> : <Lock className="w-3 h-3 ml-1"/>} CSV
-                       </button>
-                       <button onClick={() => handlePremiumFeature(exportRosterToPDF)} className={`text-xs px-3 py-1 rounded flex items-center ${isPremium ? 'bg-indigo-500 text-white hover:bg-indigo-600' : 'bg-slate-200 text-slate-500'}`}>
-                           {isPremium ? <Printer className="w-3 h-3 ml-1"/> : <Lock className="w-3 h-3 ml-1"/>} طباعة/PDF
-                       </button>
+                       <button onClick={() => handlePremiumFeature(exportRosterToCSV)} className={`text-xs px-3 py-1 rounded flex items-center ${isPremium ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-slate-200 text-slate-500'}`}>{isPremium ? <Download className="w-3 h-3 ml-1"/> : <Lock className="w-3 h-3 ml-1"/>} CSV</button>
+                       <button onClick={() => handlePremiumFeature(exportRosterToPDF)} className={`text-xs px-3 py-1 rounded flex items-center ${isPremium ? 'bg-indigo-500 text-white hover:bg-indigo-600' : 'bg-slate-200 text-slate-500'}`}>{isPremium ? <Printer className="w-3 h-3 ml-1"/> : <Lock className="w-3 h-3 ml-1"/>} طباعة PDF</button>
                     </div>
                  </div>
-                 <div className="flex space-x-3 space-x-reverse pb-2 min-w-max print:hidden">
-                    {staffList.map(s => {
-                       const actual = staffStats[s.id]?.totalShifts || 0;
-                       const diff = actual - s.targetShifts;
-                       let color = diff === 0 ? 'bg-emerald-50 border-emerald-200' : diff < 0 ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200';
-                       return <div key={s.id} className={`p-2 rounded border ${color} text-center w-24 flex-shrink-0`}><div className="text-xs font-bold truncate">{s.name}</div><div className="text-lg font-bold">{actual} <span className="text-xs text-slate-400">/ {s.targetShifts}</span></div></div>
-                    })}
-                 </div>
-              </div>
-              {logs.length > 0 && <div className="bg-amber-50 p-4 rounded border border-amber-200 max-h-40 overflow-y-auto text-xs text-amber-800 print:hidden"><ul className="list-disc pr-4">{logs.map((l, i) => <li key={i}>{l}</li>)}</ul></div>}
-              <div className="bg-white rounded-xl shadow-sm border overflow-x-auto print:shadow-none print:border">
-                 <table className="min-w-full divide-y divide-slate-200 text-sm">
-                    <thead className="bg-slate-800 text-white print:bg-slate-200 print:text-black">
-                       <tr>
-                          <th className="px-4 py-3 text-right w-24">التاريخ</th>
-                          {getShiftsForSystem(config.shiftSystem).map(s => <th key={s.code} className="px-4 py-3 text-right border-l border-slate-700 print:border-slate-400">{s.label}</th>)}
-                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 print:divide-slate-200">
-                       {roster.map(row => (
-                          <tr key={row.dayIndex} className="hover:bg-slate-50">
-                             <td className="px-4 py-3 font-bold text-slate-700 border-l print:border-slate-300">{row.dateInfo.str} <span className="text-xs text-slate-400 block">{row.dateInfo.dayName}</span></td>
-                             {getShiftsForSystem(config.shiftSystem).map(s => {
-                                const assigned = row.shifts[s.code] || [];
+
+                 {/* EXCEL STYLE TABLE */}
+                 <div className="overflow-x-auto">
+                     <table className="w-full border-collapse text-[10px] font-sans border border-black text-center">
+                        <thead className="bg-blue-100">
+                            <tr>
+                                <th className="border border-black w-6">NO.</th>
+                                <th className="border border-black min-w-[120px]">STAFF NAME</th>
+                                <th className="border border-black w-8">POS.</th>
+                                <th className="border border-black w-8">ID</th>
+                                <th className="border border-black w-6">LEVEL</th>
+                                <th className="border border-black w-6">G</th>
+                                {roster.length > 0 && roster.map((r, i) => (
+                                    <th key={i} className={`border border-black w-6 ${r.dateInfo.isWeekend ? 'bg-orange-200' : ''}`}>
+                                        <div className="text-[8px] font-bold">{r.dateInfo.dayName.substring(0,3)}</div>
+                                        <div>{r.dateInfo.dayNum}</div>
+                                    </th>
+                                ))}
+                                <th className="border border-black w-6 bg-gray-200">D</th>
+                                <th className="border border-black w-6 bg-gray-200">N</th>
+                                <th className="border border-black w-8 bg-gray-300">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {staffList.map((staff, index) => {
+                                const stats = { D: 0, N: 0 };
                                 return (
-                                   <td key={s.code} className="px-4 py-3 align-top border-l print:border-slate-300">
-                                      <div className="space-y-1">
-                                         {assigned.map(st => (
-                                            <div key={st.id} className="flex justify-between bg-white border rounded px-2 py-1 shadow-sm print:border-slate-300">
-                                               <span className="font-bold text-slate-700">{st.name}</span>
-                                               <span className="text-[10px] bg-slate-100 px-1 rounded print:bg-slate-200">{st.assignedRole}</span>
-                                            </div>
-                                         ))}
-                                         {assigned.length < config.minStaffOnlyCount && <div className="text-xs text-rose-500 border-dashed border border-rose-300 rounded px-2 py-1 text-center print:hidden">عجز</div>}
-                                      </div>
-                                   </td>
-                                )
-                             })}
-                          </tr>
-                       ))}
-                    </tbody>
-                 </table>
+                                <tr key={staff.id} className="hover:bg-gray-50">
+                                    <td className="border border-black">{index + 1}</td>
+                                    <td className="border border-black text-left px-1 font-bold whitespace-nowrap">{staff.name}</td>
+                                    <td className="border border-black">{staff.pos}</td>
+                                    <td className="border border-black">{staff.staffId}</td>
+                                    <td className="border border-black">{staff.grade}</td>
+                                    <td className="border border-black">{staff.gender}</td>
+                                    {roster.map((r, i) => {
+                                        // Check shift for this staff
+                                        const isDay = r.shifts['D']?.some(s => s.id === staff.id) || r.shifts['M']?.some(s => s.id === staff.id);
+                                        const isNight = r.shifts['N']?.some(s => s.id === staff.id);
+                                        const isOff = !isDay && !isNight;
+                                        
+                                        if (isDay) stats.D++;
+                                        if (isNight) stats.N++;
+
+                                        return (
+                                            <td key={i} className={`border border-black font-bold ${r.dateInfo.isWeekend ? 'bg-orange-200' : ''} ${isDay ? 'bg-yellow-100' : ''}`}>
+                                                {isDay ? 'D' : isNight ? 'N' : <span className="text-red-500">X</span>}
+                                            </td>
+                                        );
+                                    })}
+                                    <td className="border border-black font-bold bg-gray-100">{stats.D}</td>
+                                    <td className="border border-black font-bold bg-gray-100">{stats.N}</td>
+                                    <td className="border border-black font-bold bg-gray-200">{stats.D + stats.N}</td>
+                                </tr>
+                            )})}
+                        </tbody>
+                        {/* TOTALS ROW */}
+                        <tfoot className="bg-blue-200 font-bold">
+                            <tr>
+                                <td colSpan={6} className="border border-black p-1 text-right px-2">TOTAL</td>
+                                {roster.map((r, i) => {
+                                    const count = Object.values(r.shifts).flat().length;
+                                    return (
+                                        <td key={i} className={`border border-black ${r.dateInfo.isWeekend ? 'bg-orange-300' : ''}`}>{count}</td>
+                                    )
+                                })}
+                                <td colSpan={3} className="border border-black bg-gray-300"></td>
+                            </tr>
+                        </tfoot>
+                     </table>
+                 </div>
               </div>
            </div>
         )}
 
         {activeTab === 'contact' && (
            <div className="animate-in fade-in slide-in-from-bottom-4 max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border overflow-hidden">
-              <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-10 text-center text-white">
-                 <MessageCircle className="w-12 h-12 mx-auto mb-2"/>
-                 <h2 className="text-2xl font-bold">تواصل مع المطور</h2>
-              </div>
-              <div className="p-8 space-y-6">
-                 <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border"><Mail className="text-indigo-600"/><span className="font-mono">mahmoudkhelfa20@gmail.com</span></div>
-                 <div className="grid grid-cols-3 gap-4 text-center">
-                    <a href="https://facebook.com" target="_blank" className="p-4 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100"><Facebook className="mx-auto mb-1"/><span className="text-xs font-bold">Facebook</span></a>
-                    <a href="https://instagram.com" target="_blank" className="p-4 bg-pink-50 text-pink-600 rounded-xl hover:bg-pink-100"><Instagram className="mx-auto mb-1"/><span className="text-xs font-bold">Instagram</span></a>
-                    <a href={`https://wa.me/${paymentInfo.whatsapp}`} target="_blank" className="p-4 bg-green-50 text-green-600 rounded-xl hover:bg-green-100"><Phone className="mx-auto mb-1"/><span className="text-xs font-bold">WhatsApp</span></a>
-                 </div>
-              </div>
+              <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-10 text-center text-white"><MessageCircle className="w-12 h-12 mx-auto mb-2"/><h2 className="text-2xl font-bold">تواصل مع المطور</h2></div>
+              <div className="p-8 space-y-6"><div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border"><Mail className="text-indigo-600"/><span className="font-mono">mahmoudkhelfa20@gmail.com</span></div><div className="grid grid-cols-3 gap-4 text-center"><a href="https://facebook.com" target="_blank" className="p-4 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100"><Facebook className="mx-auto mb-1"/><span className="text-xs font-bold">Facebook</span></a><a href="https://instagram.com" target="_blank" className="p-4 bg-pink-50 text-pink-600 rounded-xl hover:bg-pink-100"><Instagram className="mx-auto mb-1"/><span className="text-xs font-bold">Instagram</span></a><a href={`https://wa.me/${paymentInfo.whatsapp}`} target="_blank" className="p-4 bg-green-50 text-green-600 rounded-xl hover:bg-green-100"><Phone className="mx-auto mb-1"/><span className="text-xs font-bold">WhatsApp</span></a></div></div>
            </div>
         )}
       </main>
