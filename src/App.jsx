@@ -662,13 +662,36 @@ const App = () => {
                 {staffList.map(staff => (
                    <div key={staff.id} className="bg-white rounded-xl shadow-sm border p-5 relative">
                       <button onClick={() => removeStaff(staff.id)} className="absolute top-4 left-4 text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>
+                      
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                         <div className="col-span-2 lg:col-span-1"><label className="text-xs font-bold text-slate-500 block mb-1">الاسم</label><input type="text" value={staff.name} onChange={(e) => updateStaff(staff.id, 'name', e.target.value)} className="w-full border-b-2 focus:border-indigo-500 outline-none font-bold"/></div>
+                         {/* الاسم */}
+                         <div className="col-span-2 lg:col-span-1">
+                             <label className="text-xs font-bold text-slate-500 block mb-1">الاسم</label>
+                             <input type="text" value={staff.name} onChange={(e) => updateStaff(staff.id, 'name', e.target.value)} className="w-full border-b-2 focus:border-indigo-500 outline-none font-bold"/>
+                         </div>
+                         
+                         {/* البيانات الأساسية */}
                          <div className="grid grid-cols-3 gap-2">
                              <div><label className="text-[10px] font-bold text-slate-500 block">ID</label><input type="text" value={staff.staffId || ''} onChange={(e) => updateStaff(staff.id, 'staffId', e.target.value)} className="w-full border rounded p-1 text-xs text-center"/></div>
                              <div><label className="text-[10px] font-bold text-slate-500 block">G</label><select value={staff.gender || 'F'} onChange={(e) => updateStaff(staff.id, 'gender', e.target.value)} className="w-full border rounded p-1 text-xs text-center"><option value="M">M</option><option value="F">F</option></select></div>
                              <div><label className="text-[10px] font-bold text-slate-500 block">POS</label><input type="text" value={staff.pos || 'SN'} onChange={(e) => updateStaff(staff.id, 'pos', e.target.value)} className="w-full border rounded p-1 text-xs text-center bg-slate-50" readOnly/></div>
                          </div>
+
+                         {/* --- هنا الخانة اللي كانت ناقصة (Target) --- */}
+                         <div className="bg-yellow-50 p-1 rounded border border-yellow-200">
+                             <label className="text-xs font-bold text-slate-700 block mb-1 text-center">المطلوب (Target)</label>
+                             <input 
+                                type="number" 
+                                value={staff.targetShifts} 
+                                onChange={(e) => updateStaff(staff.id, 'targetShifts', parseInt(e.target.value))} 
+                                className="w-full border rounded p-1 text-sm font-bold text-center bg-white"
+                             />
+                         </div>
+                         {/* ----------------------------------------- */}
+
+                         <div><label className="text-xs font-bold text-slate-500 block mb-1">الدرجة (Grade)</label><select value={staff.grade} onChange={(e) => updateStaff(staff.id, 'grade', e.target.value)} className="w-full border rounded p-1 text-sm font-bold bg-slate-50">{grades.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+                         <div><label className="text-xs font-bold text-slate-500 block mb-1">الدور</label><select value={staff.role} onChange={(e) => updateStaff(staff.id, 'role', e.target.value)} className="w-full border rounded p-1 text-sm">{roles.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
+                         
                          <div>
                              <label className="text-xs font-bold text-slate-500 block mb-1">نمط العمل</label>
                              <select value={staff.preference} onChange={(e) => updateStaff(staff.id, 'preference', e.target.value)} className="w-full border rounded p-1 text-sm bg-indigo-50 text-indigo-900 font-bold">
@@ -676,9 +699,8 @@ const App = () => {
                                  <option value="scattered">متقطع (Scattered)</option>
                              </select>
                          </div>
-                         <div><label className="text-xs font-bold text-slate-500 block mb-1">الدرجة (Grade)</label><select value={staff.grade} onChange={(e) => updateStaff(staff.id, 'grade', e.target.value)} className="w-full border rounded p-1 text-sm font-bold bg-slate-50">{grades.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
-                         <div><label className="text-xs font-bold text-slate-500 block mb-1">الدور</label><select value={staff.role} onChange={(e) => updateStaff(staff.id, 'role', e.target.value)} className="w-full border rounded p-1 text-sm">{roles.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
-                         
+
+                         {/* إعدادات التفضيل والسايكل */}
                          {config.shiftSystem === '12h' && staff.preference !== 'cycle' && (
                             <div>
                                 <label className="text-xs font-bold text-slate-500 block mb-1">تفضيل الشفت</label>
