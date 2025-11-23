@@ -254,14 +254,24 @@ const App = () => {
       } 
   };
 
+  // --- 1. منطق التوزيع (محدث بالعدالة) ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
     const newRoster = []; 
     let currentShortages = []; 
+    
+    // إعداد الحالة: إضافة عدادات Day و Night
     let staffState = {}; 
     staffList.forEach(s => {
-        staffState[s.id] = { lastShift: null, consecutiveWorkDays: 0, consecutiveOffDays: 0, totalShifts: 0 };
+        staffState[s.id] = { 
+            lastShift: null, 
+            consecutiveWorkDays: 0, 
+            consecutiveOffDays: 0, 
+            totalShifts: 0,
+            dayShiftsCount: 0, // عداد الصباحي
+            nightShiftsCount: 0 // عداد المسائي
+        };
     });
 
     for (let dayIndex = 1; dayIndex <= config.durationDays; dayIndex++) {
@@ -297,15 +307,41 @@ const App = () => {
         const scoreStaff = (staff) => { 
             const state = staffState[staff.id];
             let score = (staff.targetShifts - state.totalShifts) * 10;
+            
+            // Cycle Logic
             if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 50;
+            
+            // Seniority Logic
             if (staff.grade === 'A') score += 2;
+            
+            // --- Fairness Algorithm (خوارزمية العدالة) ---
             if (config.shiftSystem === '12h') {
                 const pref = staff.shiftPreference || 'auto';
                 const isDayShift = shift.code === 'D';
-                if (pref === 'all_day') { if (isDayShift) score += 100; else score -= 1000; }
-                else if (pref === 'all_night') { if (!isDayShift) score += 100; else score -= 1000; }
-                else if (pref === 'mostly_day') { if (isDayShift) score += 20; else score -= 20; }
-                else if (pref === 'mostly_night') { if (!isDayShift) score += 20; else score -= 20; }
+                
+                if (pref === 'auto') {
+                    // ميزان العدل: حاول تعويض الشفت الناقص
+                    const dCount = state.dayShiftsCount || 0;
+                    const nCount = state.nightShiftsCount || 0;
+                    
+                    if (isDayShift) {
+                        // لو الصباحي أقل من المسائي، زود فرصته ياخد صباحي
+                        if (dCount < nCount) score += 40; 
+                        // لو الصباحي أكتر، قلل فرصته
+                        else if (dCount > nCount) score -= 20;
+                    } else { // Night Shift
+                        // لو المسائي أقل من الصباحي، زود فرصته ياخد مسائي
+                        if (nCount < dCount) score += 40;
+                        // لو المسائي أكتر، قلل فرصته
+                        else if (nCount > dCount) score -= 20;
+                    }
+                } else {
+                    // التفضيلات الصريحة (Strict Preferences)
+                    if (pref === 'all_day') { if (isDayShift) score += 100; else score -= 1000; }
+                    else if (pref === 'all_night') { if (!isDayShift) score += 100; else score -= 1000; }
+                    else if (pref === 'mostly_day') { if (isDayShift) score += 20; else score -= 20; }
+                    else if (pref === 'mostly_night') { if (!isDayShift) score += 20; else score -= 20; }
+                }
             }
             return score;
         };
@@ -356,7 +392,11 @@ const App = () => {
             staffState[s.id].lastShift = shift.code; 
             staffState[s.id].consecutiveWorkDays += 1; 
             staffState[s.id].consecutiveOffDays = 0; 
-            staffState[s.id].totalShifts += 1; 
+            staffState[s.id].totalShifts += 1;
+            
+            // تحديث عداد الصباحي والمسائي
+            if (shift.code === 'D' || shift.code === 'M') staffState[s.id].dayShiftsCount += 1;
+            if (shift.code === 'N') staffState[s.id].nightShiftsCount += 1;
         });
         
         dailyShifts[shift.code] = assignedShiftStaff;
@@ -373,14 +413,12 @@ const App = () => {
       newRoster.push({ dayIndex, dateInfo, shifts: dailyShifts });
     }
 
-    // === NURSE AID SPECIAL LOGIC (Extra Shifts for Targets) ===
     const nurseAids = staffList.filter(s => s.role === 'Nurse Aid');
     nurseAids.forEach(aid => {
         if (staffState[aid.id].totalShifts < aid.targetShifts) {
             for (let r of newRoster) {
                 if (staffState[aid.id].totalShifts >= aid.targetShifts) break;
                 const dayOfWeek = r.dateInfo.dateObj.getDay();
-                // Logic: If Sunday (0) or Monday (1), try to add as Extra
                 if (dayOfWeek === 0 || dayOfWeek === 1) {
                     const isWorking = Object.values(r.shifts).flat().some(s => s.id === aid.id);
                     if (!isWorking) {
@@ -394,7 +432,6 @@ const App = () => {
             }
         }
     });
-    // ===========================================================
 
     setRosterAndSync(newRoster); 
     setStaffStats(staffState); 
@@ -602,7 +639,6 @@ const App = () => {
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6">
                         <h4 className="text-sm font-bold text-slate-400 uppercase mb-4">قواعد الراحة والـ Cycle</h4>
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 space-y-3">
-                             {/* Added Medication Toggle Here */}
                              <label className="flex justify-between items-center p-3 bg-white border rounded-lg cursor-pointer">
                                 <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-500"></span><span className="text-sm font-bold text-slate-700">تفعيل Medication Nurse</span></div>
                                 <input type="checkbox" checked={config.requireMedicationNurse} onChange={(e) => setConfigAndSync({...config, requireMedicationNurse: e.target.checked})} className="w-5 h-5 accent-purple-600"/>
@@ -643,6 +679,19 @@ const App = () => {
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدرجة (Grade)</label><select value={staff.grade} onChange={(e) => updateStaff(staff.id, 'grade', e.target.value)} className="w-full border rounded p-1 text-sm font-bold bg-slate-50">{grades.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
                          <div><label className="text-xs font-bold text-slate-500 block mb-1">الدور</label><select value={staff.role} onChange={(e) => updateStaff(staff.id, 'role', e.target.value)} className="w-full border rounded p-1 text-sm">{roles.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
                          
+                         {config.shiftSystem === '12h' && staff.preference !== 'cycle' && (
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 block mb-1">تفضيل الشفت</label>
+                                <select value={staff.shiftPreference || 'auto'} onChange={(e) => updateStaff(staff.id, 'shiftPreference', e.target.value)} className="w-full border rounded p-1 text-sm font-bold text-indigo-700 bg-indigo-50">
+                                    <option value="auto">تلقائي (متوازن)</option>
+                                    <option value="all_day">الكل صباحي</option>
+                                    <option value="all_night">الكل مسائي</option>
+                                    <option value="mostly_day">الأغلب صباحي</option>
+                                    <option value="mostly_night">الأغلب مسائي</option>
+                                </select>
+                            </div>
+                         )}
+
                          {staff.preference === 'cycle' && (
                              <div className="col-span-2 bg-blue-50 p-2 rounded flex gap-2 items-center border border-blue-200 justify-center">
                                 <span className="text-[10px] font-bold text-blue-800">السايكل:</span>
