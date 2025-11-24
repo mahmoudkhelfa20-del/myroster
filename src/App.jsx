@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent, RefreshCw, Star
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent, Star
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 
-// --- Firebase Configuration ---
+// --- Firebase Config ---
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDYfEuKC2x15joIBS082can9w0jdy_6_-0", 
   authDomain: "roster-maker-app.firebaseapp.com",
@@ -24,6 +24,7 @@ const auth = getAuth(app);
 const ADMIN_UID = "lpHTOe8uAzbf8MNnX6SGw6W7B5h1"; 
 
 const App = () => {
+  // --- State Management ---
   const [activeTab, setActiveTab] = useState('staff');
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
@@ -35,12 +36,8 @@ const App = () => {
   const [targetUserUid, setTargetUserUid] = useState(""); 
   
   const [paymentInfo, setPaymentInfo] = useState({
-    price: 1000, 
-    discount: 0, 
-    freeLimit: 10, 
-    instapay: "mahmoudkhelfa@instapay",
-    wallet: "01205677601",
-    whatsapp: "201205677601"
+    price: 1000, discount: 0, freeLimit: 10, 
+    instapay: "mahmoudkhelfa@instapay", wallet: "01205677601", whatsapp: "201205677601"
   });
 
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -51,19 +48,14 @@ const App = () => {
   const [shortageWarnings, setShortageWarnings] = useState([]);
 
   const defaultInitialConfig = {
-    shiftSystem: '12h', 
-    allowDoubleShift: false, 
-    maxConsecutiveWork: 5,   
-    maxConsecutiveOff: 4,    
-    requireMedicationNurse: true, 
-    allowMultipleCharge: false,
-    minStaffOnlyCount: 3, 
-    minSeniorCount: 1,
+    shiftSystem: '12h', allowDoubleShift: false, maxConsecutiveWork: 5, maxConsecutiveOff: 4,    
+    requireMedicationNurse: true, allowMultipleCharge: false,
+    minStaffOnlyCount: 3, minSeniorCount: 1,
     startDay: 1, month: new Date().getMonth(), year: new Date().getFullYear(), durationDays: 30,
     hospitalName: "", hospitalLogo: null
   };
 
-  // --- القائمة الكاملة (تم إضافة خاصية isCustomSenior) ---
+  // --- Staff List ---
   const defaultInitialStaff = [
     // Charge Nurses
     { id: 1, staffId: '274', name: 'Mohamed Ibrahim', gender: 'M', role: 'Charge', pos: 'CN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 15, vacationDays: [] },
@@ -138,7 +130,7 @@ const App = () => {
       str: formatDate(date), 
       dayNum: date.getDate(), 
       dayName: dayNamesEn[date.getDay()], 
-      isWeekend: date.getDay() === 5 // Friday
+      isWeekend: date.getDay() === 5 
     };
   };
 
@@ -154,10 +146,10 @@ const App = () => {
   const roles = ['Charge', 'Medication', 'Staff', 'Staff (Not Released)', 'Nurse Aid', 'Intern (Released)', 'Intern (Not Released)'];
   const grades = ['A', 'B', 'C', 'D'];
   
-  // --- تعديل منطق السنيور: الدرجة أو العلامة اليدوية ---
   const isSenior = (staff) => ['A', 'B'].includes(staff.grade) || staff.isCustomSenior === true;
   const isCountable = (role) => ['Charge', 'Medication', 'Staff', 'Intern (Released)'].includes(role);
 
+  // --- Listeners ---
   useEffect(() => {
     const fetchPaymentSettings = async () => {
         try {
@@ -309,21 +301,18 @@ const App = () => {
       } 
   };
 
-  // --- CORE ALGORITHM ---
+  // --- STRICT SLOT-BASED ALGORITHM (NEW) ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
     const newRoster = []; 
     let currentShortages = []; 
+    
     let staffState = {}; 
     staffList.forEach(s => {
         staffState[s.id] = { 
-            lastShift: null, 
-            consecutiveWorkDays: 0, 
-            consecutiveOffDays: 0, 
-            totalShifts: 0,
-            dayShiftsCount: 0, 
-            nightShiftsCount: 0 
+            lastShift: null, consecutiveWorkDays: 0, consecutiveOffDays: 0, totalShifts: 0,
+            dayShiftsCount: 0, nightShiftsCount: 0 
         };
     });
 
@@ -333,15 +322,12 @@ const App = () => {
       
       shiftTypes.forEach(shift => {
         let assignedShiftStaff = []; 
-        let needCharge = 1; 
-        let needMed = config.requireMedicationNurse ? 1 : 0; 
-        let needStaff = config.minStaffOnlyCount; 
-        let needAid = staffList.some(s => s.role === 'Nurse Aid') ? 1 : 0; 
-        let needSeniors = config.minSeniorCount || 1;
+        const isDayShift = shift.code === 'D' || shift.code === 'M';
 
+        // 1. Availability & Scoring Function
         const isAvailable = (staff) => {
           const state = staffState[staff.id];
-          if (staff.vacationDays.includes(dayIndex)) return false; 
+          if (staff.vacationDays.includes(dayIndex)) return false; // Strict Vacation
           if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false; 
           
           if (staff.preference === 'cycle') {
@@ -353,137 +339,128 @@ const App = () => {
           }
 
           if (state.consecutiveWorkDays >= config.maxConsecutiveWork) return false;
-          if (!config.allowDoubleShift && state.lastShift === 'N' && shift.code === 'D') return false;
+          if (!config.allowDoubleShift && state.lastShift === 'N' && isDayShift) return false;
           if (state.totalShifts >= staff.targetShifts + 2) return false; 
           return true;
         };
 
-        let candidates = staffList.filter(s => isAvailable(s));
-
-        const scoreStaff = (staff) => { 
+        const calculateScore = (staff) => { 
             const state = staffState[staff.id];
-            let score = (staff.targetShifts - state.totalShifts) * 10;
-            if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 50;
-            if (staff.grade === 'A') score += 2;
+            let score = (staff.targetShifts - state.totalShifts) * 100; // Base Need priority
             
-            if (staff.role === 'Nurse Aid') {
-                const isTargetDeficient = state.totalShifts < staff.targetShifts;
-                const isDayShift = shift.code === 'D' || shift.code === 'M';
-                const dayOfWeek = dateInfo.dateObj.getDay(); 
-                if (isTargetDeficient && isDayShift && (dayOfWeek === 0 || dayOfWeek === 1)) {
-                     score += 200; 
-                }
+            if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 1000; // Keep cycle going
+            
+            // Nurse Aid Priority on Sun/Mon Day
+            if (staff.role === 'Nurse Aid' && isDayShift) {
+                const dayOfWeek = dateInfo.dateObj.getDay();
+                if (dayOfWeek === 0 || dayOfWeek === 1) score += 5000;
             }
-            
+
+            // Balance & Preferences
             if (config.shiftSystem === '12h') {
                 const pref = staff.shiftPreference || 'auto';
-                const isDayShift = shift.code === 'D';
-                
                 if (pref === 'auto') {
-                    const dCount = state.dayShiftsCount || 0;
-                    const nCount = state.nightShiftsCount || 0;
-                    if (isDayShift) {
-                        if (dCount < nCount) score += 40; 
-                        else if (dCount > nCount) score -= 20; 
-                    } else { 
-                        if (nCount < dCount) score += 40; 
-                        else if (nCount > dCount) score -= 20; 
-                    }
+                    const d = state.dayShiftsCount;
+                    const n = state.nightShiftsCount;
+                    // Balance Logic
+                    if (isDayShift) { if (d < n) score += 200; else if (d > n) score -= 100; } 
+                    else { if (n < d) score += 200; else if (n > d) score -= 100; }
                 } else {
-                    if (pref === 'all_day') { if (isDayShift) score += 1000; else score -= 10000; }
-                    else if (pref === 'all_night') { if (!isDayShift) score += 1000; else score -= 10000; }
-                    else if (pref === 'mostly_day') { if (isDayShift) score += 50; else score -= 50; }
-                    else if (pref === 'mostly_night') { if (!isDayShift) score += 50; else score -= 50; }
+                    if (pref === 'all_day') { if (isDayShift) score += 10000; else score -= 10000; }
+                    else if (pref === 'all_night') { if (!isDayShift) score += 10000; else score -= 10000; }
+                    else if (pref === 'mostly_day') { if (isDayShift) score += 200; else score -= 200; }
+                    else if (pref === 'mostly_night') { if (!isDayShift) score += 200; else score -= 200; }
                 }
             }
             return score;
         };
 
-        candidates.sort((a, b) => scoreStaff(b) - scoreStaff(a));
+        // Helper to find best candidate for a specific criteria
+        const pickCandidate = (criteriaFn) => {
+            let candidates = staffList.filter(s => isAvailable(s) && !assignedShiftStaff.some(a => a.id === s.id) && criteriaFn(s));
+            // Sort by Score -> then Random (to break ladder)
+            candidates.sort((a, b) => (calculateScore(b) - calculateScore(a)) || (Math.random() - 0.5));
+            if (candidates.length > 0) {
+                const picked = candidates[0];
+                assignedShiftStaff.push(picked);
+                return true;
+            }
+            return false;
+        };
 
-        let chargeNurse = candidates.find(s => s.role === 'Charge');
-        // --- تعديل: البحث عن Charge Nurse يستخدم isSenior المحدثة (تقبل الدرجة أو العلامة اليدوية) ---
-        if (!chargeNurse && candidates.length > 0) chargeNurse = candidates.find(s => isCountable(s.role) && isSenior(s));
-        if (chargeNurse) assignedShiftStaff.push({ ...chargeNurse, assignedRole: 'Charge' });
-
-        if (needAid > 0) {
-            const aid = candidates.find(s => s.role === 'Nurse Aid' && !assignedShiftStaff.some(a => a.id === s.id));
-            if (aid) assignedShiftStaff.push({ ...aid, assignedRole: 'Nurse Aid' });
-        }
+        // --- FILL SLOTS STRICTLY ---
         
-        if (needMed > 0) {
-          const medNurse = candidates.find(s => s.role === 'Medication' && !assignedShiftStaff.some(a => a.id === s.id));
-          if (medNurse) assignedShiftStaff.push({ ...medNurse, assignedRole: 'Medication' });
-          else {
-              const altMed = candidates.find(s => isCountable(s.role) && !assignedShiftStaff.some(a => a.id === s.id));
-              if (altMed) assignedShiftStaff.push({ ...altMed, assignedRole: 'Medication' });
-          }
+        // Slot 1: EXACTLY ONE Charge
+        pickCandidate(s => s.role === 'Charge' || (isCountable(s.role) && isSenior(s)));
+
+        // Slot 2: AT LEAST ONE Medication
+        if (config.requireMedicationNurse) {
+            if (!pickCandidate(s => s.role === 'Medication')) {
+                // If no Med nurse found, pick best Staff (Fallback)
+                pickCandidate(s => isCountable(s.role)); 
+            }
         }
 
+        // Slot 3: AT LEAST ONE Nurse Aid
+        if (staffList.some(s => s.role === 'Nurse Aid')) {
+            pickCandidate(s => s.role === 'Nurse Aid');
+        }
+
+        // Slot 4: Minimum Seniors (Count current seniors first)
         let currentSeniors = assignedShiftStaff.filter(s => isSenior(s)).length;
-        while (currentSeniors < needSeniors) {
-            // --- تعديل: البحث عن Senior يستخدم isSenior المحدثة ---
-            const seniorCandidate = candidates.find(s => !assignedShiftStaff.some(a => a.id === s.id) && isCountable(s.role) && isSenior(s));
-            if (seniorCandidate) { assignedShiftStaff.push({ ...seniorCandidate, assignedRole: 'Staff (Senior)' }); currentSeniors++; } else { break; }
+        while (currentSeniors < (config.minSeniorCount || 1)) {
+            if (pickCandidate(s => isCountable(s.role) && isSenior(s))) {
+                currentSeniors++;
+            } else {
+                break; 
+            }
         }
 
+        // Slot 5: Fill Remaining Staff to meet Min Staff Count
         let currentCountable = assignedShiftStaff.filter(s => isCountable(s.role)).length;
-        while (currentCountable < needStaff) {
-          const nextStaff = candidates.find(s => !assignedShiftStaff.some(a => a.id === s.id) && isCountable(s.role));
-          if (nextStaff) { assignedShiftStaff.push({ ...nextStaff, assignedRole: 'Staff' }); currentCountable++; } else { break; }
+        while (currentCountable < config.minStaffOnlyCount) {
+            if (pickCandidate(s => isCountable(s.role))) {
+                currentCountable++;
+            } else {
+                break; 
+            }
         }
 
-        const trainees = candidates.filter(s => 
-            (s.role === 'Intern (Not Released)' || s.role === 'Staff (Not Released)') && 
-            !assignedShiftStaff.some(a => a.id === s.id) && 
-            staffState[s.id].totalShifts < s.targetShifts
-        );
-        
-        if (trainees.length > 0) {
-            assignedShiftStaff.push({ ...trainees[0], assignedRole: 'Training' });
-        }
+        // Slot 6: Trainees (Extras)
+        pickCandidate(s => !isCountable(s.role) && staffState[s.id].totalShifts < s.targetShifts);
 
-        if (currentCountable < needStaff) {
+
+        // Check for Shortage
+        if (currentCountable < config.minStaffOnlyCount) {
             currentShortages.push({
-                day: dateInfo.str,
-                dayName: dateInfo.dayName,
-                shift: shift.label,
-                needed: needStaff,
-                actual: currentCountable,
-                missing: needStaff - currentCountable
+                day: dateInfo.str, dayName: dateInfo.dayName, shift: shift.label,
+                needed: config.minStaffOnlyCount, actual: currentCountable, missing: config.minStaffOnlyCount - currentCountable
             });
         }
 
-        assignedShiftStaff.forEach(s => { 
-            staffState[s.id].lastShift = shift.code; 
-            staffState[s.id].consecutiveWorkDays += 1; 
-            staffState[s.id].consecutiveOffDays = 0; 
-            staffState[s.id].totalShifts += 1;
-            if (shift.code === 'D' || shift.code === 'M') staffState[s.id].dayShiftsCount += 1;
-            if (shift.code === 'N') staffState[s.id].nightShiftsCount += 1;
+        // Commit Shift
+        assignedShiftStaff.forEach(s => {
+            const st = staffState[s.id];
+            st.lastShift = shift.code; st.consecutiveWorkDays++; st.consecutiveOffDays = 0; st.totalShifts++;
+            if (isDayShift) st.dayShiftsCount++; else st.nightShiftsCount++;
         });
-        
         dailyShifts[shift.code] = assignedShiftStaff;
       });
 
+      // Update Off Days
       const workedIds = Object.values(dailyShifts).flat().map(s => s.id);
-      staffList.forEach(s => { 
-          if (!workedIds.includes(s.id)) { 
-              staffState[s.id].consecutiveWorkDays = 0; 
-              staffState[s.id].consecutiveOffDays += 1; 
-          } 
+      staffList.forEach(s => {
+          if (!workedIds.includes(s.id)) {
+              staffState[s.id].consecutiveWorkDays = 0;
+              if (!s.vacationDays.includes(dayIndex)) staffState[s.id].consecutiveOffDays++;
+          }
       });
 
-      const countStaffOnly = (arr) => arr ? arr.filter(s => isCountable(s.role) && !['Charge', 'Medication'].includes(s.assignedRole)).length : 0;
-      const dayStaffCount = countStaffOnly(dailyShifts['D'] || dailyShifts['M']);
-      const nightStaffCount = countStaffOnly(dailyShifts['N']);
-
+      const countStaffOnly = (arr) => arr ? arr.filter(s => isCountable(s.role) && !['Charge', 'Medication'].includes(s.role) && !s.assignedRole?.includes('Medication')).length : 0;
       newRoster.push({ 
-          dayIndex, 
-          dateInfo, 
-          shifts: dailyShifts,
-          dayStaffCount,
-          nightStaffCount
+          dayIndex, dateInfo, shifts: dailyShifts, 
+          dayStaffCount: countStaffOnly(dailyShifts['D'] || dailyShifts['M']), 
+          nightStaffCount: countStaffOnly(dailyShifts['N']) 
       });
     }
 
@@ -494,15 +471,9 @@ const App = () => {
   };
 
   const toggleShiftCell = (dayIndex, staffId) => {
-    if (!isPremium) {
-       alert("التعديل اليدوي متاح في النسخة المدفوعة فقط.");
-       setShowPaymentModal(true);
-       return;
-    }
-
+    if (!isPremium) { setShowPaymentModal(true); return; }
     const newRoster = [...roster];
     const dayData = newRoster.find(r => r.dayIndex === dayIndex);
-    
     if (dayData) {
       const isDay = dayData.shifts['D']?.some(s => s.id === staffId) || dayData.shifts['M']?.some(s => s.id === staffId);
       const isNight = dayData.shifts['N']?.some(s => s.id === staffId);
@@ -529,33 +500,15 @@ const App = () => {
     if (!isPremium) { setShowPaymentModal(true); return; }
     const table = document.getElementById("roster-table-export");
     if (!table) return;
-
     const htmlContext = `
-        <html xmlns:o="urn:schemas-microsoft-com:office:office" 
-              xmlns:x="urn:schemas-microsoft-com:office:excel" 
-              xmlns="http://www.w3.org/TR/REC-html40">
-        <head>
-            <meta charset="utf-8">
-            <style>
-                table { border-collapse: collapse; width: 100%; }
-                td, th { border: 1px solid #000000; text-align: center; vertical-align: middle; }
-                .off-cell { background-color: #f3f4f6; color: #9ca3af; } 
-            </style>
-        </head>
-        <body>
-            ${table.outerHTML}
-        </body>
-        </html>
-    `;
-
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head><meta charset="utf-8"><style>table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #000000; text-align: center; vertical-align: middle; }</style></head>
+        <body>${table.outerHTML}</body></html>`;
     const blob = new Blob([htmlContext], { type: 'application/vnd.ms-excel' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url;
-    link.download = `Roster_${months[config.month]}_${config.year}.xls`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    link.href = url; link.download = `Roster_${months[config.month]}_${config.year}.xls`;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
   const handlePremiumFeature = (action) => { if (isPremium) action(); else setShowPaymentModal(true); };
@@ -597,7 +550,6 @@ const App = () => {
       const price = parseFloat(paymentInfo.price || 1000);
       const discount = parseFloat(paymentInfo.discount || 0);
       const finalPrice = discount > 0 ? price * (1 - discount/100) : price;
-
       return (
         <div className="fixed inset-0 bg-slate-900 bg-opacity-80 z-50 flex items-center justify-center p-4" onClick={() => setShowPaymentModal(false)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -629,6 +581,15 @@ const App = () => {
 
   if (loading || config === null || staffList === null) { return renderLoading(); }
   
+  // Grouping Staff for the Roster Table
+  const groupedStaff = {
+      Charge: staffList.filter(s => s.role === 'Charge'),
+      Staff: staffList.filter(s => s.role === 'Staff' || s.role === 'Intern (Released)'),
+      'Not Released': staffList.filter(s => s.role === 'Staff (Not Released)' || s.role === 'Intern (Not Released)'),
+      Medication: staffList.filter(s => s.role === 'Medication'),
+      'Nurse Aid': staffList.filter(s => s.role === 'Nurse Aid'),
+  };
+
   return (
     <div className="min-h-screen bg-white font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-700 overflow-x-auto" dir="rtl">
       {showAuthModal && renderAuthModal()}
@@ -684,23 +645,6 @@ const App = () => {
                 <div><h4 className="font-bold text-indigo-900 text-sm">كود الحساب (User ID)</h4><p className="text-xs text-indigo-600 mt-1 font-mono select-all">{userId || "غير مسجل"}</p></div>
                 <button onClick={() => {navigator.clipboard.writeText(userId); alert("تم النسخ!");}} className="text-indigo-600 hover:bg-indigo-100 p-2 rounded-full"><Copy className="w-5 h-5"/></button>
              </div>
-             {/* زرار الطوارئ لإظهار الأسماء الجديدة */}
-             <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-                <h4 className="text-sm font-bold text-red-700 mb-2">إدارة البيانات (هام جداً)</h4>
-                <p className="text-xs text-red-500 mb-3">اضغط هنا فقط إذا كنت تريد استبدال القائمة الحالية بالأسماء الأصلية الموجودة في الكود.</p>
-                <button 
-                    onClick={() => {
-                        if(window.confirm("هل أنت متأكد؟ سيتم مسح الفريق الحالي واستبداله بالأسماء الـ 42 الأصلية.")) {
-                            setStaffListAndSync(defaultInitialStaff);
-                            alert("تم استعادة القائمة بنجاح! تفقد تبويب الفريق.");
-                        }
-                    }}
-                    className="w-full bg-white text-red-600 py-2 rounded border border-red-300 hover:bg-red-100 font-bold flex items-center justify-center gap-2"
-                >
-                    <RefreshCw className="w-4 h-4"/> استعادة القائمة الأصلية (Force Reset)
-                </button>
-             </div>
-
              {isAdmin && (
                  <div className="bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 overflow-hidden">
                      <div className="p-4 bg-slate-900 border-b border-slate-700 flex items-center gap-2"><ShieldCheck className="text-emerald-400"/><h3 className="font-bold text-lg">لوحة تحكم الأدمن</h3></div>
@@ -770,7 +714,7 @@ const App = () => {
                              <div><label className="text-[10px] font-bold text-slate-500 block">POS</label><input type="text" value={staff.pos || 'SN'} onChange={(e) => updateStaff(staff.id, 'pos', e.target.value)} className="w-full border rounded p-1 text-xs text-center bg-slate-50" readOnly/></div>
                          </div>
 
-                         {/* زر الـ Senior اليدوي الجديد */}
+                         {/* --- Senior Checkbox (New) --- */}
                          <div className="flex items-center gap-2 bg-purple-50 p-2 rounded border border-purple-200">
                              <label className="flex flex-col items-center cursor-pointer">
                                 <span className="text-[8px] font-bold text-purple-900 mb-1">Senior?</span>
@@ -815,7 +759,25 @@ const App = () => {
                              </div>
                          )}
                          
-                         <div className="col-span-2 lg:col-span-4"><label className="text-xs font-bold text-slate-500 block mb-1">إجازات</label><div className="grid grid-cols-10 gap-1">{Array.from({length: config.durationDays}, (_, i) => i + 1).map(d => (<button key={d} onClick={() => toggleVacationDay(staff.id, d)} className={`h-6 text-[9px] rounded ${staff.vacationDays.includes(d) ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-400'}`}>{d}</button>))}</div></div>
+                         <div className="col-span-2 lg:col-span-4">
+                             <label className="text-xs font-bold text-slate-500 block mb-1">إجازات محددة</label>
+                             <div className="grid grid-cols-10 gap-1">
+                                 {Array.from({length: config.durationDays}, (_, i) => i + 1).map(d => {
+                                     const dayName = getFullDateLabel(d).dayName.substring(0, 2); 
+                                     return (
+                                         <button 
+                                            key={d} 
+                                            onClick={() => toggleVacationDay(staff.id, d)} 
+                                            className={`h-8 text-[9px] rounded flex flex-col items-center justify-center border ${staff.vacationDays.includes(d) ? 'bg-rose-500 text-white border-rose-600' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-white'}`}
+                                            title={`يوم ${d}`}
+                                         >
+                                            <span className="font-bold">{dayName}</span>
+                                            <span>{d}</span>
+                                         </button>
+                                     )
+                                 })}
+                             </div>
+                         </div>
                       </div>
                    </div>
                 ))}
@@ -870,56 +832,77 @@ const App = () => {
                                 <th className="border border-black w-8 bg-gray-300">Total</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            {staffList.map((staff, index) => {
-                                const stats = { D: 0, N: 0 };
-                                return (
-                                <tr key={staff.id} className="hover:bg-gray-50">
-                                    <td className="border border-black">{index + 1}</td>
-                                    <td className="border border-black text-left px-1 font-bold whitespace-nowrap flex items-center">
-                                        {staff.isCustomSenior && <Star className="w-3 h-3 text-yellow-500 mr-1 fill-current"/>}
-                                        {staff.name}
-                                    </td>
-                                    <td className="border border-black">{staff.pos}</td>
-                                    <td className="border border-black">{staff.staffId}</td>
-                                    <td className="border border-black">{staff.grade}</td>
-                                    <td className="border border-black">{staff.gender}</td>
-                                    {roster.map((r, i) => {
-                                        const isDay = r.shifts['D']?.some(s => s.id === staff.id) || r.shifts['M']?.some(s => s.id === staff.id);
-                                        const isNight = r.shifts['N']?.some(s => s.id === staff.id);
-                                        if (isDay) stats.D++; if (isNight) stats.N++;
-
-                                        let content = '';
-                                        let cellStyle = { color: '#000000', backgroundColor: '#ffffff' };
-
-                                        if (isDay) {
-                                            content = 'D';
-                                            cellStyle.backgroundColor = '#fef9c3';
-                                        } else if (isNight) {
-                                            content = 'N';
-                                            cellStyle.backgroundColor = '#374151';
-                                            cellStyle.color = '#ffffff';
-                                        } else {
-                                            content = 'X';
-                                            cellStyle.backgroundColor = r.dateInfo.isWeekend ? '#fed7aa' : '#f0f4f8'; 
-                                            cellStyle.color = '#9ca3af'; 
-                                        }
+                        {/* --- GROUPS RENDERING WITH SEPARATORS --- */}
+                        {Object.keys(groupedStaff).map(roleGroup => {
+                            if (groupedStaff[roleGroup].length === 0) return null;
+                            return (
+                                <tbody key={roleGroup}>
+                                    <tr className="bg-gray-300 font-bold text-left">
+                                        <td colSpan={6 + roster.length + 3} className="border border-black px-2 py-1 text-xs uppercase tracking-wider bg-slate-200">
+                                            {roleGroup} NURSES
+                                        </td>
+                                    </tr>
+                                    {groupedStaff[roleGroup].map((staff, index) => {
+                                        let dCount = 0; let nCount = 0;
+                                        roster.forEach(r => {
+                                            const isDay = r.shifts['D']?.some(s => s.id === staff.id) || r.shifts['M']?.some(s => s.id === staff.id);
+                                            const isNight = r.shifts['N']?.some(s => s.id === staff.id);
+                                            if (isDay) dCount++; if (isNight) nCount++;
+                                        });
 
                                         return (
-                                            <td key={i} 
-                                                onClick={() => toggleShiftCell(r.dayIndex, staff.id)}
-                                                style={{ ...cellStyle, cursor: 'pointer' }}
-                                                className="border border-black font-bold select-none hover:opacity-80">
-                                                {content}
+                                        <tr key={staff.id} className="hover:bg-gray-50">
+                                            <td className="border border-black">{staffList.indexOf(staff) + 1}</td>
+                                            <td className="border border-black text-left px-1 font-bold whitespace-nowrap flex items-center">
+                                                {staff.isCustomSenior && <Star className="w-3 h-3 text-yellow-500 mr-1 fill-current"/>}
+                                                {staff.name}
                                             </td>
-                                        );
-                                    })}
-                                    <td className="border border-black font-bold bg-gray-100">{stats.D}</td>
-                                    <td className="border border-black font-bold bg-gray-100">{stats.N}</td>
-                                    <td className="border border-black font-bold bg-gray-200">{stats.D + stats.N}</td>
-                                </tr>
-                            )})}
-                        </tbody>
+                                            <td className="border border-black">{staff.pos}</td>
+                                            <td className="border border-black">{staff.staffId}</td>
+                                            <td className="border border-black">{staff.grade}</td>
+                                            <td className="border border-black">{staff.gender}</td>
+                                            {roster.map((r, i) => {
+                                                const isDay = r.shifts['D']?.some(s => s.id === staff.id) || r.shifts['M']?.some(s => s.id === staff.id);
+                                                const isNight = r.shifts['N']?.some(s => s.id === staff.id);
+                                                const isVacation = staff.vacationDays.includes(r.dayIndex);
+
+                                                let content = '';
+                                                let cellStyle = { color: '#000000', backgroundColor: '#ffffff' };
+
+                                                if (isDay) {
+                                                    content = 'D';
+                                                    cellStyle.backgroundColor = '#fef9c3';
+                                                } else if (isNight) {
+                                                    content = 'N';
+                                                    cellStyle.backgroundColor = '#374151';
+                                                    cellStyle.color = '#ffffff';
+                                                } else if (isVacation) {
+                                                    content = 'V';
+                                                    cellStyle.backgroundColor = '#fca5a5'; 
+                                                    cellStyle.color = '#ffffff'; 
+                                                } else {
+                                                    content = 'X';
+                                                    cellStyle.backgroundColor = r.dateInfo.isWeekend ? '#fed7aa' : '#f0f4f8'; 
+                                                    cellStyle.color = '#9ca3af'; 
+                                                }
+
+                                                return (
+                                                    <td key={i} 
+                                                        onClick={() => toggleShiftCell(r.dayIndex, staff.id)}
+                                                        style={{ ...cellStyle, cursor: 'pointer' }}
+                                                        className="border border-black font-bold select-none hover:opacity-80">
+                                                        {content}
+                                                    </td>
+                                                );
+                                            })}
+                                            <td className="border border-black font-bold bg-gray-100">{dCount}</td>
+                                            <td className="border border-black font-bold bg-gray-100">{nCount}</td>
+                                            <td className="border border-black font-bold bg-gray-200">{dCount + nCount}</td>
+                                        </tr>
+                                    )})}
+                                </tbody>
+                            )
+                        })}
                         <tfoot className="font-bold text-[10px]">
                             <tr>
                                 <td colSpan={6} style={{backgroundColor: '#bfdbfe'}} className="border border-black p-1 text-right px-2">TOTAL Staff (All Roles)</td>
