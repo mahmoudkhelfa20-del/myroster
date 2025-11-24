@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent, Star
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent, RefreshCw, Star
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 
-// --- Firebase Config ---
+// --- Firebase Configuration ---
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDYfEuKC2x15joIBS082can9w0jdy_6_-0", 
   authDomain: "roster-maker-app.firebaseapp.com",
@@ -24,7 +24,6 @@ const auth = getAuth(app);
 const ADMIN_UID = "lpHTOe8uAzbf8MNnX6SGw6W7B5h1"; 
 
 const App = () => {
-  // --- State Management ---
   const [activeTab, setActiveTab] = useState('staff');
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
@@ -149,7 +148,6 @@ const App = () => {
   const isSenior = (staff) => ['A', 'B'].includes(staff.grade) || staff.isCustomSenior === true;
   const isCountable = (role) => ['Charge', 'Medication', 'Staff', 'Intern (Released)'].includes(role);
 
-  // --- Listeners ---
   useEffect(() => {
     const fetchPaymentSettings = async () => {
         try {
@@ -301,7 +299,7 @@ const App = () => {
       } 
   };
 
-  // --- STRICT SLOT-BASED ALGORITHM (NEW) ---
+  // --- STRICT SLOT-BASED ALGORITHM ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
@@ -456,7 +454,16 @@ const App = () => {
           }
       });
 
-      const countStaffOnly = (arr) => arr ? arr.filter(s => isCountable(s.role) && !['Charge', 'Medication'].includes(s.role) && !s.assignedRole?.includes('Medication')).length : 0;
+      // New Counting Logic (Staff + Intern Released, excluding Charge/Med roles in this shift)
+      const countStaffOnly = (arr) => {
+          if (!arr) return 0;
+          return arr.filter(s => {
+              const isCaseTaker = s.role === 'Staff' || s.role === 'Intern (Released)';
+              const isNotSpecialRole = !['Charge', 'Medication'].includes(s.assignedRole);
+              return isCaseTaker && isNotSpecialRole;
+          }).length;
+      };
+
       newRoster.push({ 
           dayIndex, dateInfo, shifts: dailyShifts, 
           dayStaffCount: countStaffOnly(dailyShifts['D'] || dailyShifts['M']), 
@@ -759,11 +766,12 @@ const App = () => {
                              </div>
                          )}
                          
+                         {/* --- Vacation Day Buttons (Updated Labels) --- */}
                          <div className="col-span-2 lg:col-span-4">
                              <label className="text-xs font-bold text-slate-500 block mb-1">إجازات محددة</label>
                              <div className="grid grid-cols-10 gap-1">
                                  {Array.from({length: config.durationDays}, (_, i) => i + 1).map(d => {
-                                     const dayName = getFullDateLabel(d).dayName.substring(0, 2); 
+                                     const dayName = getFullDateLabel(d).dayName.substring(0, 2); // SU, MO, TU...
                                      return (
                                          <button 
                                             key={d} 
