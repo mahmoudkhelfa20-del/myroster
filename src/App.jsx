@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent, Star
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent, RefreshCw, Star
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -24,7 +24,6 @@ const auth = getAuth(app);
 const ADMIN_UID = "lpHTOe8uAzbf8MNnX6SGw6W7B5h1"; 
 
 const App = () => {
-  // --- State Management ---
   const [activeTab, setActiveTab] = useState('staff');
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
@@ -57,12 +56,10 @@ const App = () => {
 
   // --- Staff List ---
   const defaultInitialStaff = [
-    // Charge Nurses
     { id: 1, staffId: '274', name: 'Mohamed Ibrahim', gender: 'M', role: 'Charge', pos: 'CN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 15, vacationDays: [] },
     { id: 2, staffId: '752', name: 'Fawzya Mahmoud', gender: 'F', role: 'Charge', pos: 'CN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 15, vacationDays: [] },
     { id: 3, staffId: '2092', name: 'Mahmoud Khelfa', gender: 'M', role: 'Charge', pos: 'CN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
     { id: 4, staffId: '5283', name: 'Shehata Mohamed', gender: 'M', role: 'Charge', pos: 'SN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
-    // Staff Nurses
     { id: 5, staffId: '5420', name: 'Mohamed Elsayed', gender: 'M', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
     { id: 6, staffId: '5847', name: 'Doaa Sallam', gender: 'F', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 14, vacationDays: [] },
     { id: 7, staffId: '6260', name: 'Yassa Nagy', gender: 'M', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 13, vacationDays: [] },
@@ -77,16 +74,13 @@ const App = () => {
     { id: 16, staffId: '6175', name: 'Mostafa Abu Zaid', gender: 'M', role: 'Staff', pos: 'SN', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
     { id: 17, staffId: '6549', name: 'Hager Mohamed', gender: 'F', role: 'Staff', pos: 'SN', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
     { id: 20, staffId: '6501', name: 'Abdelrahman Mohamed', gender: 'M', role: 'Staff', pos: 'SN', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
-    // Interns (Released)
     { id: 18, staffId: '6329', name: 'Amany Habib', gender: 'F', role: 'Intern (Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
     { id: 19, staffId: '6331', name: 'Rasha Mosaad', gender: 'F', role: 'Intern (Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
     { id: 21, staffId: '6532', name: 'Norhan Mohamed', gender: 'F', role: 'Intern (Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
-    // Nurse Aids (NA)
     { id: 27, staffId: '464', name: 'Abdelrahman Wagdy', gender: 'M', role: 'Nurse Aid', pos: 'NA', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
     { id: 28, staffId: '755', name: 'Abdelrahman Khairy', gender: 'M', role: 'Nurse Aid', pos: 'NA', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
     { id: 29, staffId: '5675', name: 'Mareim Khalid', gender: 'F', role: 'Nurse Aid', pos: 'NA', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
     { id: 30, staffId: '5850', name: 'Ahmed Abdelaziz', gender: 'M', role: 'Nurse Aid', pos: 'NA', grade: 'C', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
-    // New Hiring (Not Released)
     { id: 31, staffId: '6429', name: 'Esraa Ibrahim', gender: 'F', role: 'Staff (Not Released)', pos: 'SN', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
     { id: 32, staffId: '6390', name: 'Amira Mosad', gender: 'F', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
     { id: 33, staffId: '6391', name: 'Hager Mamdouh', gender: 'F', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
@@ -98,7 +92,6 @@ const App = () => {
     { id: 39, staffId: '6520', name: 'Reda El Mohamdy + A Alaa', gender: 'M', role: 'Staff (Not Released)', pos: 'SN', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 18, vacationDays: [] },
     { id: 40, staffId: '6460', name: 'Tasbeeh Hosny + Omnia', gender: 'F', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
     { id: 41, staffId: '6316', name: 'Abdelrahman Shafek + Omnia', gender: 'M', role: 'Intern (Not Released)', pos: 'INT', grade: 'D', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
-    // Medication Nurses
     { id: 22, staffId: '2097', name: 'Esraa Omran', gender: 'F', role: 'Medication', pos: 'SN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 17, vacationDays: [] },
     { id: 23, staffId: '6073', name: 'Mahmoud A Elzaher', gender: 'M', role: 'Medication', pos: 'SN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 14, vacationDays: [] },
     { id: 24, staffId: '5635', name: 'Alaa Ayman', gender: 'F', role: 'Medication', pos: 'SN', grade: 'B', preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 16, vacationDays: [] },
@@ -300,7 +293,7 @@ const App = () => {
       } 
   };
 
-  // --- STRICT FALLBACK ALGORITHM ---
+  // --- SMART CONTINUITY ALGORITHM ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
@@ -323,11 +316,11 @@ const App = () => {
         let assignedShiftStaff = []; 
         const isDayShift = shift.code === 'D' || shift.code === 'M';
 
-        // Strict Availability (Respects everything)
         const isAvailableStrict = (staff) => {
             const state = staffState[staff.id];
             if (staff.vacationDays.includes(dayIndex)) return false; 
             if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false; 
+            
             if (staff.preference === 'cycle') {
                 const work = staff.cycleWorkDays || 5;
                 const off = staff.cycleOffDays || 4;
@@ -341,8 +334,10 @@ const App = () => {
             return true;
         };
 
-        // Relaxed Availability (Ignores Cycle/Targets/MaxConsecutive, ONLY respects Vacation & Double Shift)
-        const isAvailableRelaxed = (staff) => {
+        // --- Fallback Availability (Panic Mode) ---
+        // Ignores Cycle, MaxConsecutive, and Target Cap.
+        // Only respects Vacation & Double Shift safety.
+        const isAvailablePanic = (staff) => {
             const state = staffState[staff.id];
             if (staff.vacationDays.includes(dayIndex)) return false; 
             if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false; 
@@ -354,7 +349,13 @@ const App = () => {
             const state = staffState[staff.id];
             let score = (staff.targetShifts - state.totalShifts) * 100; 
             
-            if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 1000; 
+            // ** CONTINUITY BOOST (The Fix) **
+            // If worked yesterday and hasn't hit max -> HUGE Boost
+            if (state.consecutiveWorkDays > 0 && state.consecutiveWorkDays < config.maxConsecutiveWork) {
+                score += 2000; 
+            }
+
+            if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 500;
             
             if (staff.role === 'Nurse Aid' && isDayShift) {
                 const dayOfWeek = dateInfo.dateObj.getDay();
@@ -379,60 +380,49 @@ const App = () => {
         };
 
         const pickCandidate = (criteriaFn, forceFill = false) => {
+            // 1. Try Strict
             let candidates = staffList.filter(s => isAvailableStrict(s) && !assignedShiftStaff.some(a => a.id === s.id) && criteriaFn(s));
             
-            // FALLBACK: If no strict candidates found, try relaxed criteria (FORCE FILL)
+            // 2. If empty & Force Fill -> Try Panic Mode
             if (candidates.length === 0 && forceFill) {
-                candidates = staffList.filter(s => isAvailableRelaxed(s) && !assignedShiftStaff.some(a => a.id === s.id) && criteriaFn(s));
+                candidates = staffList.filter(s => isAvailablePanic(s) && !assignedShiftStaff.some(a => a.id === s.id) && criteriaFn(s));
             }
 
             candidates.sort((a, b) => (calculateScore(b) - calculateScore(a)) || (Math.random() - 0.5));
             
             if (candidates.length > 0) {
-                const picked = candidates[0];
-                assignedShiftStaff.push(picked);
+                assignedShiftStaff.push(candidates[0]);
                 return true;
             }
             return false;
         };
 
-        // --- STRICT SLOT FILLING ---
-        
-        // 1. Charge (Force Fill: TRUE)
-        pickCandidate(s => s.role === 'Charge' || (isCountable(s.role) && isSenior(s)), true);
+        // --- FILL SLOTS ---
+        pickCandidate(s => s.role === 'Charge' || (isCountable(s.role) && isSenior(s)), true); // Force
 
-        // 2. Medication (Force Fill: TRUE)
         if (config.requireMedicationNurse) {
             if (!pickCandidate(s => s.role === 'Medication', true)) {
                 pickCandidate(s => isCountable(s.role), true);
             }
         }
 
-        // 3. Nurse Aid (Force Fill: TRUE)
         if (staffList.some(s => s.role === 'Nurse Aid')) {
-            pickCandidate(s => s.role === 'Nurse Aid', true);
+            pickCandidate(s => s.role === 'Nurse Aid', true); // Force
         }
 
-        // 4. Seniors
         let currentSeniors = assignedShiftStaff.filter(s => isSenior(s)).length;
         while (currentSeniors < (config.minSeniorCount || 1)) {
             if (pickCandidate(s => isCountable(s.role) && isSenior(s), false)) currentSeniors++;
             else break; 
         }
 
-        // 5. Fill Staff to Min Count (Force Fill: TRUE) - To meet targets
         let currentCountable = assignedShiftStaff.filter(s => isCountable(s.role)).length;
         while (currentCountable < config.minStaffOnlyCount) {
-            if (pickCandidate(s => isCountable(s.role), true)) {
-                currentCountable++;
-            } else {
-                break; 
-            }
+            if (pickCandidate(s => isCountable(s.role), true)) currentCountable++; // Force
+            else break; 
         }
 
-        // 6. Extras
         pickCandidate(s => !isCountable(s.role) && staffState[s.id].totalShifts < s.targetShifts, false);
-
 
         if (currentCountable < config.minStaffOnlyCount) {
             currentShortages.push({
@@ -457,12 +447,11 @@ const App = () => {
           }
       });
 
-      // Count Logic: Staff/Interns, NOT Charge/Med roles
       const countStaffOnly = (arr) => {
           if (!arr) return 0;
           return arr.filter(s => {
               const isCaseTaker = s.role === 'Staff' || s.role === 'Intern (Released)';
-              const isNotSpecialRole = !['Charge', 'Medication'].includes(s.assignedRole) && !s.role.includes('Charge') && !s.role.includes('Medication');
+              const isNotSpecialRole = !['Charge', 'Medication'].includes(s.role) && !s.assignedRole?.includes('Charge') && !s.assignedRole?.includes('Medication');
               return isCaseTaker && isNotSpecialRole;
           }).length;
       };
@@ -591,6 +580,7 @@ const App = () => {
 
   if (loading || config === null || staffList === null) { return renderLoading(); }
   
+  // Grouping Staff for the Roster Table
   const groupedStaff = {
       Charge: staffList.filter(s => s.role === 'Charge'),
       Staff: staffList.filter(s => s.role === 'Staff' || s.role === 'Intern (Released)'),
@@ -723,6 +713,7 @@ const App = () => {
                              <div><label className="text-[10px] font-bold text-slate-500 block">POS</label><input type="text" value={staff.pos || 'SN'} onChange={(e) => updateStaff(staff.id, 'pos', e.target.value)} className="w-full border rounded p-1 text-xs text-center bg-slate-50" readOnly/></div>
                          </div>
 
+                         {/* --- Senior Checkbox (New) --- */}
                          <div className="flex items-center gap-2 bg-purple-50 p-2 rounded border border-purple-200">
                              <label className="flex flex-col items-center cursor-pointer">
                                 <span className="text-[8px] font-bold text-purple-900 mb-1">Senior?</span>
