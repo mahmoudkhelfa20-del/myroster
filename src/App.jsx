@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Settings, Calendar, Plus, Trash2, Play, Activity,
   UserCog, MessageCircle, LogOut, LogIn, Save, Mail, Phone, Facebook, 
-  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent, RefreshCw, Star
+  Instagram, Sun, Moon, Clock, RotateCcw, Download, Printer, Lock, X, ShieldCheck, Upload, Image as ImageIcon, Copy, CheckCircle, UserCheck, AlertTriangle, Edit3, Percent, Star
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 
-// --- Firebase Configuration ---
+// --- Firebase Config ---
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDYfEuKC2x15joIBS082can9w0jdy_6_-0", 
   authDomain: "roster-maker-app.firebaseapp.com",
@@ -24,6 +24,7 @@ const auth = getAuth(app);
 const ADMIN_UID = "lpHTOe8uAzbf8MNnX6SGw6W7B5h1"; 
 
 const App = () => {
+  // --- State Management ---
   const [activeTab, setActiveTab] = useState('staff');
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
@@ -268,7 +269,7 @@ const App = () => {
     const defaultPos = 'SN'; 
     setStaffListAndSync([...staffList, { 
         id: newId, staffId: '', name: 'ممرض جديد', gender: 'F', role: 'Staff', pos: defaultPos, grade: 'C', 
-        preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', maxConsecutive: 5, targetShifts: 15, vacationDays: [] 
+        preference: 'cycle', cycleWorkDays: 5, cycleOffDays: 4, shiftPreference: 'auto', targetShifts: 15, vacationDays: [] 
     }]);
   };
 
@@ -299,7 +300,7 @@ const App = () => {
       } 
   };
 
-  // --- STRICT SLOT-BASED ALGORITHM ---
+  // --- STRICT FALLBACK ALGORITHM ---
   const generateRoster = () => {
     if (!config || !staffList) return; 
     const shiftTypes = getShiftsForSystem(config.shiftSystem);
@@ -322,45 +323,49 @@ const App = () => {
         let assignedShiftStaff = []; 
         const isDayShift = shift.code === 'D' || shift.code === 'M';
 
-        // 1. Availability & Scoring Function
-        const isAvailable = (staff) => {
-          const state = staffState[staff.id];
-          if (staff.vacationDays.includes(dayIndex)) return false; // Strict Vacation
-          if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false; 
-          
-          if (staff.preference === 'cycle') {
-             const work = staff.cycleWorkDays || 5;
-             const off = staff.cycleOffDays || 4;
-             const cycleLen = work + off;
-             const dayInCycle = (dayIndex + staff.id) % cycleLen; 
-             if (dayInCycle >= work) return false; 
-          }
+        // Strict Availability (Respects everything)
+        const isAvailableStrict = (staff) => {
+            const state = staffState[staff.id];
+            if (staff.vacationDays.includes(dayIndex)) return false; 
+            if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false; 
+            if (staff.preference === 'cycle') {
+                const work = staff.cycleWorkDays || 5;
+                const off = staff.cycleOffDays || 4;
+                const cycleLen = work + off;
+                const dayInCycle = (dayIndex + staff.id) % cycleLen; 
+                if (dayInCycle >= work) return false; 
+            }
+            if (state.consecutiveWorkDays >= config.maxConsecutiveWork) return false;
+            if (!config.allowDoubleShift && state.lastShift === 'N' && isDayShift) return false;
+            if (state.totalShifts >= staff.targetShifts + 2) return false; 
+            return true;
+        };
 
-          if (state.consecutiveWorkDays >= config.maxConsecutiveWork) return false;
-          if (!config.allowDoubleShift && state.lastShift === 'N' && isDayShift) return false;
-          if (state.totalShifts >= staff.targetShifts + 2) return false; 
-          return true;
+        // Relaxed Availability (Ignores Cycle/Targets/MaxConsecutive, ONLY respects Vacation & Double Shift)
+        const isAvailableRelaxed = (staff) => {
+            const state = staffState[staff.id];
+            if (staff.vacationDays.includes(dayIndex)) return false; 
+            if (Object.values(dailyShifts).flat().some(s => s.id === staff.id)) return false; 
+            if (!config.allowDoubleShift && state.lastShift === 'N' && isDayShift) return false; 
+            return true;
         };
 
         const calculateScore = (staff) => { 
             const state = staffState[staff.id];
-            let score = (staff.targetShifts - state.totalShifts) * 100; // Base Need priority
+            let score = (staff.targetShifts - state.totalShifts) * 100; 
             
-            if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 1000; // Keep cycle going
+            if (staff.preference === 'cycle' && state.consecutiveWorkDays > 0) score += 1000; 
             
-            // Nurse Aid Priority on Sun/Mon Day
             if (staff.role === 'Nurse Aid' && isDayShift) {
                 const dayOfWeek = dateInfo.dateObj.getDay();
                 if (dayOfWeek === 0 || dayOfWeek === 1) score += 5000;
             }
 
-            // Balance & Preferences
             if (config.shiftSystem === '12h') {
                 const pref = staff.shiftPreference || 'auto';
                 if (pref === 'auto') {
                     const d = state.dayShiftsCount;
                     const n = state.nightShiftsCount;
-                    // Balance Logic
                     if (isDayShift) { if (d < n) score += 200; else if (d > n) score -= 100; } 
                     else { if (n < d) score += 200; else if (n > d) score -= 100; }
                 } else {
@@ -373,11 +378,16 @@ const App = () => {
             return score;
         };
 
-        // Helper to find best candidate for a specific criteria
-        const pickCandidate = (criteriaFn) => {
-            let candidates = staffList.filter(s => isAvailable(s) && !assignedShiftStaff.some(a => a.id === s.id) && criteriaFn(s));
-            // Sort by Score -> then Random (to break ladder)
+        const pickCandidate = (criteriaFn, forceFill = false) => {
+            let candidates = staffList.filter(s => isAvailableStrict(s) && !assignedShiftStaff.some(a => a.id === s.id) && criteriaFn(s));
+            
+            // FALLBACK: If no strict candidates found, try relaxed criteria (FORCE FILL)
+            if (candidates.length === 0 && forceFill) {
+                candidates = staffList.filter(s => isAvailableRelaxed(s) && !assignedShiftStaff.some(a => a.id === s.id) && criteriaFn(s));
+            }
+
             candidates.sort((a, b) => (calculateScore(b) - calculateScore(a)) || (Math.random() - 0.5));
+            
             if (candidates.length > 0) {
                 const picked = candidates[0];
                 assignedShiftStaff.push(picked);
@@ -386,49 +396,44 @@ const App = () => {
             return false;
         };
 
-        // --- FILL SLOTS STRICTLY ---
+        // --- STRICT SLOT FILLING ---
         
-        // Slot 1: EXACTLY ONE Charge
-        pickCandidate(s => s.role === 'Charge' || (isCountable(s.role) && isSenior(s)));
+        // 1. Charge (Force Fill: TRUE)
+        pickCandidate(s => s.role === 'Charge' || (isCountable(s.role) && isSenior(s)), true);
 
-        // Slot 2: AT LEAST ONE Medication
+        // 2. Medication (Force Fill: TRUE)
         if (config.requireMedicationNurse) {
-            if (!pickCandidate(s => s.role === 'Medication')) {
-                // If no Med nurse found, pick best Staff (Fallback)
-                pickCandidate(s => isCountable(s.role)); 
+            if (!pickCandidate(s => s.role === 'Medication', true)) {
+                pickCandidate(s => isCountable(s.role), true);
             }
         }
 
-        // Slot 3: AT LEAST ONE Nurse Aid
+        // 3. Nurse Aid (Force Fill: TRUE)
         if (staffList.some(s => s.role === 'Nurse Aid')) {
-            pickCandidate(s => s.role === 'Nurse Aid');
+            pickCandidate(s => s.role === 'Nurse Aid', true);
         }
 
-        // Slot 4: Minimum Seniors (Count current seniors first)
+        // 4. Seniors
         let currentSeniors = assignedShiftStaff.filter(s => isSenior(s)).length;
         while (currentSeniors < (config.minSeniorCount || 1)) {
-            if (pickCandidate(s => isCountable(s.role) && isSenior(s))) {
-                currentSeniors++;
-            } else {
-                break; 
-            }
+            if (pickCandidate(s => isCountable(s.role) && isSenior(s), false)) currentSeniors++;
+            else break; 
         }
 
-        // Slot 5: Fill Remaining Staff to meet Min Staff Count
+        // 5. Fill Staff to Min Count (Force Fill: TRUE) - To meet targets
         let currentCountable = assignedShiftStaff.filter(s => isCountable(s.role)).length;
         while (currentCountable < config.minStaffOnlyCount) {
-            if (pickCandidate(s => isCountable(s.role))) {
+            if (pickCandidate(s => isCountable(s.role), true)) {
                 currentCountable++;
             } else {
                 break; 
             }
         }
 
-        // Slot 6: Trainees (Extras)
-        pickCandidate(s => !isCountable(s.role) && staffState[s.id].totalShifts < s.targetShifts);
+        // 6. Extras
+        pickCandidate(s => !isCountable(s.role) && staffState[s.id].totalShifts < s.targetShifts, false);
 
 
-        // Check for Shortage
         if (currentCountable < config.minStaffOnlyCount) {
             currentShortages.push({
                 day: dateInfo.str, dayName: dateInfo.dayName, shift: shift.label,
@@ -436,7 +441,6 @@ const App = () => {
             });
         }
 
-        // Commit Shift
         assignedShiftStaff.forEach(s => {
             const st = staffState[s.id];
             st.lastShift = shift.code; st.consecutiveWorkDays++; st.consecutiveOffDays = 0; st.totalShifts++;
@@ -445,7 +449,6 @@ const App = () => {
         dailyShifts[shift.code] = assignedShiftStaff;
       });
 
-      // Update Off Days
       const workedIds = Object.values(dailyShifts).flat().map(s => s.id);
       staffList.forEach(s => {
           if (!workedIds.includes(s.id)) {
@@ -454,12 +457,12 @@ const App = () => {
           }
       });
 
-      // New Counting Logic (Staff + Intern Released, excluding Charge/Med roles in this shift)
+      // Count Logic: Staff/Interns, NOT Charge/Med roles
       const countStaffOnly = (arr) => {
           if (!arr) return 0;
           return arr.filter(s => {
               const isCaseTaker = s.role === 'Staff' || s.role === 'Intern (Released)';
-              const isNotSpecialRole = !['Charge', 'Medication'].includes(s.assignedRole);
+              const isNotSpecialRole = !['Charge', 'Medication'].includes(s.assignedRole) && !s.role.includes('Charge') && !s.role.includes('Medication');
               return isCaseTaker && isNotSpecialRole;
           }).length;
       };
@@ -509,7 +512,7 @@ const App = () => {
     if (!table) return;
     const htmlContext = `
         <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-        <head><meta charset="utf-8"><style>table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #000000; text-align: center; vertical-align: middle; }</style></head>
+        <head><meta charset="utf-8"><style>table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #000000; text-align: center; vertical-align: middle; } .off-cell { background-color: #ef4444; color: #fff; }</style></head>
         <body>${table.outerHTML}</body></html>`;
     const blob = new Blob([htmlContext], { type: 'application/vnd.ms-excel' });
     const url = URL.createObjectURL(blob);
@@ -588,7 +591,6 @@ const App = () => {
 
   if (loading || config === null || staffList === null) { return renderLoading(); }
   
-  // Grouping Staff for the Roster Table
   const groupedStaff = {
       Charge: staffList.filter(s => s.role === 'Charge'),
       Staff: staffList.filter(s => s.role === 'Staff' || s.role === 'Intern (Released)'),
@@ -721,7 +723,6 @@ const App = () => {
                              <div><label className="text-[10px] font-bold text-slate-500 block">POS</label><input type="text" value={staff.pos || 'SN'} onChange={(e) => updateStaff(staff.id, 'pos', e.target.value)} className="w-full border rounded p-1 text-xs text-center bg-slate-50" readOnly/></div>
                          </div>
 
-                         {/* --- Senior Checkbox (New) --- */}
                          <div className="flex items-center gap-2 bg-purple-50 p-2 rounded border border-purple-200">
                              <label className="flex flex-col items-center cursor-pointer">
                                 <span className="text-[8px] font-bold text-purple-900 mb-1">Senior?</span>
@@ -766,12 +767,11 @@ const App = () => {
                              </div>
                          )}
                          
-                         {/* --- Vacation Day Buttons (Updated Labels) --- */}
                          <div className="col-span-2 lg:col-span-4">
                              <label className="text-xs font-bold text-slate-500 block mb-1">إجازات محددة</label>
                              <div className="grid grid-cols-10 gap-1">
                                  {Array.from({length: config.durationDays}, (_, i) => i + 1).map(d => {
-                                     const dayName = getFullDateLabel(d).dayName.substring(0, 2); // SU, MO, TU...
+                                     const dayName = getFullDateLabel(d).dayName.substring(0, 2); 
                                      return (
                                          <button 
                                             key={d} 
@@ -877,17 +877,17 @@ const App = () => {
                                                 let content = '';
                                                 let cellStyle = { color: '#000000', backgroundColor: '#ffffff' };
 
-                                                if (isDay) {
+                                                if (isVacation) {
+                                                    content = 'X';
+                                                    cellStyle.backgroundColor = '#ef4444'; // RED Background for Vacation
+                                                    cellStyle.color = '#ffffff'; 
+                                                } else if (isDay) {
                                                     content = 'D';
                                                     cellStyle.backgroundColor = '#fef9c3';
                                                 } else if (isNight) {
                                                     content = 'N';
                                                     cellStyle.backgroundColor = '#374151';
                                                     cellStyle.color = '#ffffff';
-                                                } else if (isVacation) {
-                                                    content = 'V';
-                                                    cellStyle.backgroundColor = '#fca5a5'; 
-                                                    cellStyle.color = '#ffffff'; 
                                                 } else {
                                                     content = 'X';
                                                     cellStyle.backgroundColor = r.dateInfo.isWeekend ? '#fed7aa' : '#f0f4f8'; 
